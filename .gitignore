@@ -1,0 +1,36 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Variables de Entorno (CRÍTICO) ---
+# Jamás subas tus contraseñas de Postgres o llaves JWT
+.env
+.flaskenv
+*.env
+
+# --- Base de Datos / Docker ---
+# Si mapeas volúmenes locales, ignora la carpeta de datos
+pgdata/
+postgres_data/
+*.db
+*.sqlite3
+
+# --- IDEs / Editores ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# --- Distribución / Empaquetado ---
+dist/
+build/
+*.egg-info/

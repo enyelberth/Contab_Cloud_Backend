@@ -1,0 +1,221 @@
+-- ================================================================
+-- 1. EXTENSIONES Y SEGURIDAD INICIAL
+-- ================================================================
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ================================================================
+-- 2. ESTRUCTURA ORGANIZACIONAL (SEDES)
+-- ================================================================
+CREATE TABLE branches (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    address TEXT,
+    phone VARCHAR(20),
+    is_active BOOLEAN DEFAULT TRUE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ================================================================
+-- 3. SEGURIDAD Y ACCESO (IAM / RBAC)
+-- ================================================================
+CREATE TABLE roles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT
+);
+
+CREATE TABLE permissions (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL -- Ej: 'inventory.edit'
+);
+
+CREATE TABLE role_permissions (
+    role_id INTEGER REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id INTEGER REFERENCES permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+);
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role_id INTEGER REFERENCES roles(id),
+    branch_id INTEGER REFERENCES branches(id),
+    status VARCHAR(20) DEFAULT 'active',
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ================================================================
+-- 4. INVENTARIO Y COSTOS
+-- ================================================================
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    sku VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    description TEXT,
+    category_id INTEGER REFERENCES categories(id),
+    is_active BOOLEAN DEFAULT TRUE,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE branch_inventory (
+    id SERIAL PRIMARY KEY,
+    branch_id INTEGER REFERENCES branches(id),
+    product_id INTEGER REFERENCES products(id),
+    stock DECIMAL(12,2) DEFAULT 0.00,
+    min_stock DECIMAL(12,2) DEFAULT 5.00,
+    last_unit_cost_base DECIMAL(18,2) DEFAULT 0.00, -- Costo de la última compra
+    average_unit_cost_base DECIMAL(18,2) DEFAULT 0.00, -- Costo promedio ponderado
+    UNIQUE(branch_id, product_id)
+);
+
+-- ================================================================
+-- 5. LOGÍSTICA (COMPRAS Y TRANSFERENCIAS)
+-- ================================================================
+CREATE TABLE suppliers (
+    id SERIAL PRIMARY KEY,
+    tax_id VARCHAR(20) UNIQUE NOT NULL, -- RIF o Cédula
+    company_name VARCHAR(150) NOT NULL,
+    contact_name VARCHAR(100),
+    phone VARCHAR(20),
+    email VARCHAR(100),
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE purchases (
+    id SERIAL PRIMARY KEY,
+    supplier_id INTEGER REFERENCES suppliers(id),
+    branch_id INTEGER REFERENCES branches(id),
+    user_id INTEGER REFERENCES users(id),
+    total_cost_base DECIMAL(18,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'received',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE purchase_items (
+    id SERIAL PRIMARY KEY,
+    purchase_id INTEGER REFERENCES purchases(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    quantity DECIMAL(12,2) NOT NULL,
+    unit_cost_base DECIMAL(18,2) NOT NULL
+);
+
+CREATE TABLE transfers (
+    id SERIAL PRIMARY KEY,
+    origin_branch_id INTEGER REFERENCES branches(id),
+    destination_branch_id INTEGER REFERENCES branches(id),
+    user_id INTEGER REFERENCES users(id),
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ================================================================
+-- 6. VENTAS Y CLIENTES (CON MARGEN)
+-- ================================================================
+CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    tax_id VARCHAR(20) UNIQUE NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    email VARCHAR(100),
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE sales (
+    id SERIAL PRIMARY KEY,
+    branch_id INTEGER REFERENCES branches(id),
+    user_id INTEGER REFERENCES users(id),
+    customer_id INTEGER REFERENCES customers(id),
+    total_amount_base DECIMAL(18,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'completed',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE sale_items (
+    id SERIAL PRIMARY KEY,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    quantity DECIMAL(12,2) NOT NULL,
+    unit_price_base DECIMAL(18,2) NOT NULL, -- Precio de venta
+    unit_cost_at_sale_base DECIMAL(18,2) NOT NULL -- Costo al momento de vender (para margen)
+);
+
+-- ================================================================
+-- 7. TESORERÍA Y MULTIDIVISA
+-- ================================================================
+CREATE TABLE currencies (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(10) UNIQUE NOT NULL, -- USD, VES
+    symbol VARCHAR(5),
+    is_default BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE exchange_rates (
+    id SERIAL PRIMARY KEY,
+    currency_id INTEGER REFERENCES currencies(id),
+    rate_value DECIMAL(18,4) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE cash_registers (
+    id SERIAL PRIMARY KEY,
+    branch_id INTEGER REFERENCES branches(id),
+    name VARCHAR(50) NOT NULL,
+    status VARCHAR(20) DEFAULT 'closed'
+);
+
+CREATE TABLE cash_sessions (
+    id SERIAL PRIMARY KEY,
+    cash_register_id INTEGER REFERENCES cash_registers(id),
+    user_id INTEGER REFERENCES users(id),
+    opening_balance DECIMAL(18,2) DEFAULT 0,
+    closing_balance_real DECIMAL(18,2),
+    status VARCHAR(20) DEFAULT 'open',
+    opened_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE payments (
+    id SERIAL PRIMARY KEY,
+    sale_id INTEGER REFERENCES sales(id),
+    cash_session_id INTEGER REFERENCES cash_sessions(id),
+    payment_method_id INTEGER, -- 1: Efectivo, 2: Punto, 3: Pago Móvil, etc.
+    currency_id INTEGER REFERENCES currencies(id),
+    exchange_rate_id INTEGER REFERENCES exchange_rates(id),
+    amount_native DECIMAL(18,2) NOT NULL, -- Cuánto pagó en su moneda
+    amount_base DECIMAL(18,2) NOT NULL, -- Valor en moneda base
+    reference_number VARCHAR(100)
+);
+
+-- ================================================================
+-- 8. VISTAS DE INTELIGENCIA DE NEGOCIO (REPORTES)
+-- ================================================================
+CREATE VIEW view_profitability AS
+SELECT 
+    s.id AS sale_id,
+    s.created_at,
+    b.name AS branch_name,
+    p.name AS product_name,
+    si.quantity,
+    si.unit_price_base AS sale_price,
+    si.unit_cost_at_sale_base AS cost_price,
+    (si.unit_price_base - si.unit_cost_at_sale_base) * si.quantity AS net_profit,
+    CASE 
+        WHEN si.unit_price_base > 0 
+        THEN ROUND(((si.unit_price_base - si.unit_cost_at_sale_base) / si.unit_price_base) * 100, 2)
+        ELSE 0 
+    END AS margin_percentage
+FROM sale_items si
+JOIN sales s ON si.sale_id = s.id
+JOIN products p ON si.product_id = p.id
+JOIN branches b ON s.branch_id = b.id;

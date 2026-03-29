@@ -1,0 +1,10 @@
+-- create entorno virtual
+python -m venv venv
+--Activar el entorno virtual 
+source venv/bin/activate
+--Install depedendci
+pip install fastapi uvicorn sqlalchemy psycopg2-binary pydantic
+
+pip install -r requirements.txt
+--Run
+uvicorn app.main:app --reload
