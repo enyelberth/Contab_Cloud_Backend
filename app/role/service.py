@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from app.audit import log_audit
 from app.database import execute, fetch_all, fetch_one
 
 
@@ -10,6 +11,7 @@ def _get_role_permissions(db, role_id: int):
         FROM permissions p
         INNER JOIN role_permissions rp ON rp.permission_id = p.id
         WHERE rp.role_id = %s
+                    AND p.deleted_at IS NULL
         ORDER BY p.id ASC
         """,
         (role_id,),
@@ -28,9 +30,10 @@ def get_role(db, role_id: int):
     role = fetch_one(
         db,
         """
-        SELECT id, name, description
+        SELECT id, name, description, scope, is_assignable_to_client
         FROM roles
         WHERE id = %s
+                    AND deleted_at IS NULL
         """,
         (role_id,),
     )
@@ -43,8 +46,9 @@ def get_roles(db, skip: int = 0, limit: int = 100):
     roles = fetch_all(
         db,
         """
-        SELECT id, name, description
+        SELECT id, name, description, scope, is_assignable_to_client
         FROM roles
+        WHERE deleted_at IS NULL
         ORDER BY id ASC
         OFFSET %s LIMIT %s
         """,
@@ -53,10 +57,10 @@ def get_roles(db, skip: int = 0, limit: int = 100):
     return [_role_with_permissions(db, role) for role in roles]
 
 
-def create_role(db, role_data):
+def create_role(db, role_data, actor_user_id: int | None = None, company_id: int | None = None):
     existing_role = fetch_one(
         db,
-        "SELECT id FROM roles WHERE name = %s",
+        "SELECT id FROM roles WHERE name = %s AND deleted_at IS NULL",
         (role_data.name,),
     )
     if existing_role:
@@ -65,11 +69,16 @@ def create_role(db, role_data):
     new_role = execute(
         db,
         """
-        INSERT INTO roles (name, description)
-        VALUES (%s, %s)
-        RETURNING id, name, description
+        INSERT INTO roles (name, description, scope, is_assignable_to_client)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, name, description, scope, is_assignable_to_client
         """,
-        (role_data.name, role_data.description),
+        (
+            role_data.name,
+            role_data.description,
+            role_data.scope,
+            role_data.is_assignable_to_client,
+        ),
         returning=True,
     )
 
@@ -88,10 +97,21 @@ def create_role(db, role_data):
             )
         db.commit()
 
-    return _role_with_permissions(db, new_role)
+    enriched = _role_with_permissions(db, new_role)
+    log_audit(
+        db,
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+        module="roles",
+        action="CREATE",
+        entity_type="roles",
+        entity_id=new_role["id"],
+        after_data=enriched,
+    )
+    return enriched
 
 
-def update_role(db, role_id: int, role_data):
+def update_role(db, role_id: int, role_data, actor_user_id: int | None = None, company_id: int | None = None):
     role = get_role(db, role_id)
 
     if role_data.name is not None:
@@ -108,11 +128,19 @@ def update_role(db, role_id: int, role_data):
         UPDATE roles
         SET
             name = COALESCE(%s, name),
-            description = COALESCE(%s, description)
+            description = COALESCE(%s, description),
+            scope = COALESCE(%s, scope),
+            is_assignable_to_client = COALESCE(%s, is_assignable_to_client)
         WHERE id = %s
-        RETURNING id, name, description
+        RETURNING id, name, description, scope, is_assignable_to_client
         """,
-        (role_data.name, role_data.description, role_id),
+        (
+            role_data.name,
+            role_data.description,
+            role_data.scope,
+            role_data.is_assignable_to_client,
+            role_id,
+        ),
         returning=True,
     )
 
@@ -138,16 +166,38 @@ def update_role(db, role_id: int, role_data):
                 )
             db.commit()
 
-    return _role_with_permissions(db, updated or role)
+    enriched = _role_with_permissions(db, updated or role)
+    log_audit(
+        db,
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+        module="roles",
+        action="UPDATE",
+        entity_type="roles",
+        entity_id=role_id,
+        before_data=role,
+        after_data=enriched,
+    )
+    return enriched
 
 
-def delete_role(db, role_id: int):
+def delete_role(db, role_id: int, actor_user_id: int | None = None, company_id: int | None = None):
     role = get_role(db, role_id)
     execute(
         db,
-        "DELETE FROM roles WHERE id = %s",
+        "UPDATE roles SET deleted_at = NOW() WHERE id = %s AND deleted_at IS NULL",
         (role_id,),
         returning=False,
+    )
+    log_audit(
+        db,
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+        module="roles",
+        action="DELETE",
+        entity_type="roles",
+        entity_id=role_id,
+        before_data=role,
     )
     return role
 

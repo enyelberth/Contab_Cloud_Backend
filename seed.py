@@ -1,10 +1,10 @@
-from app.database import init_db_from_sql
+from app.database import init_db_migrations
 
 
 def run_seed():
-    """Carga el esquema y datos demo definidos en db/schema.sql."""
-    init_db_from_sql()
-    print("Seed ejecutado: esquema + datos demo aplicados")
+    """Aplica migraciones SQL versionadas y datos demo idempotentes."""
+    init_db_migrations()
+    print("Seed ejecutado: migraciones + datos demo aplicados")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ from app.permissions.schemas import Permission
 class RoleBase(BaseModel):
     name: str
     description: Optional[str] = None
+    scope: str = "company"
+    is_assignable_to_client: bool = False
 
 class RoleCreate(RoleBase):
     # Opcional: permitir enviar una lista de IDs de permisos al crear el rol

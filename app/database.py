@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import hashlib
 
 import psycopg2
 from dotenv import load_dotenv
@@ -62,16 +63,66 @@ def execute_script(conn, script):
     conn.commit()
 
 
-def init_db_from_sql():
-    sql_path = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
-    if not sql_path.exists():
-        raise FileNotFoundError(f"No existe el archivo SQL: {sql_path}")
+def _ensure_schema_migrations(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                checksum VARCHAR(64) NOT NULL,
+                applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    conn.commit()
+
+
+def _apply_migration_file(conn, version: str, file_path: Path):
+    script = file_path.read_text(encoding="utf-8")
+    checksum = hashlib.sha256(script.encode("utf-8")).hexdigest()
+
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT version, checksum FROM schema_migrations WHERE version = %s", (version,))
+        row = cur.fetchone()
+        if row:
+            if row["checksum"] != checksum:
+                raise RuntimeError(
+                    f"Checksum no coincide para migracion {version} ({file_path.name}). "
+                    "No modifiques migraciones aplicadas."
+                )
+            return False
+
+    with conn.cursor() as cur:
+        cur.execute(script)
+        cur.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum)
+            VALUES (%s, %s, %s)
+            """,
+            (version, file_path.name, checksum),
+        )
+    conn.commit()
+    return True
+
+
+def init_db_migrations():
+    migrations_dir = Path(__file__).resolve().parent.parent / "db" / "migrations"
+    if not migrations_dir.exists():
+        raise FileNotFoundError(f"No existe el directorio de migraciones: {migrations_dir}")
 
     conn = get_connection()
     try:
-        script = sql_path.read_text(encoding="utf-8")
-        execute_script(conn, script)
-        print("Conexion PostgreSQL OK y esquema aplicado desde db/schema.sql")
+        _ensure_schema_migrations(conn)
+
+        applied = 0
+        migration_files = sorted(migrations_dir.glob("*.sql"))
+        for file_path in migration_files:
+            version = file_path.name.split("_", 1)[0]
+            if _apply_migration_file(conn, version, file_path):
+                applied += 1
+
+        print(f"Conexion PostgreSQL OK. Migraciones aplicadas: {applied}")
     except Exception:
         conn.rollback()
         raise
@@ -79,5 +130,10 @@ def init_db_from_sql():
         release_connection(conn)
 
 
+def init_db_from_sql():
+    # Compatibilidad hacia atras con llamadas existentes.
+    init_db_migrations()
+
+
 if __name__ == "__main__":
-    init_db_from_sql()
+    init_db_migrations()

@@ -89,7 +89,7 @@ API disponible en:
 - `GET/POST/DELETE /permissions`
 - `POST /permissions/assign`
 
-Nota: al iniciar, la aplicacion aplica el esquema definido en `db/schema.sql` si aun no existe.
+Nota: al iniciar, la aplicacion aplica migraciones SQL versionadas desde `db/migrations`.
 
 ## Seed inicial
 
@@ -99,7 +99,7 @@ Para cargar datos base:
 python seed.py
 ```
 
-El script aplica el archivo `db/schema.sql` (tablas + permisos + menus + datos demo idempotentes).
+El script aplica migraciones SQL (tablas + permisos + menus + datos demo idempotentes).
 
 Datos demo creados automaticamente:
 
@@ -133,7 +133,7 @@ Cada menu trae banderas para UI y acciones:
 
 - [app/main.py](app/main.py): instancia FastAPI y registro de routers
 - [app/database.py](app/database.py): conexion y sesion de base de datos
-- [app/models.py](app/models.py): modelos ORM
+- [db/migrations](db/migrations): migraciones SQL versionadas
 - [app/branche](app/branche): modulo de sedes
 - [app/user](app/user): modulo de usuarios
 - [app/role](app/role): modulo de roles
