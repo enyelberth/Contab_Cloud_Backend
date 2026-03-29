@@ -1,15 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine
-from app import models
+from app.database import init_db_from_sql
 
-print("--- Iniciando verificación de Base de Datos ---")
-try:
-    models.Base.metadata.create_all(bind=engine)
-    print("✅ Proceso de metadata.create_all finalizado sin errores.")
-except Exception as e:
-    print(f"❌ Error durante la creación: {e}")
 app = FastAPI(title="ERP Multi-Sede")
+
+
+@app.on_event("startup")
+def startup_event():
+    try:
+        init_db_from_sql()
+    except Exception as exc:
+        # Dejamos log explícito para depuración en entorno académico/local.
+        print(f"Error al inicializar esquema SQL: {exc}")
 
 from app.branche import router as branche_router
 from app.user import router as user_router

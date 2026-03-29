@@ -1,54 +1,88 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 import os
-from dotenv import load_dotenv
-from sqlalchemy.exc import OperationalError # Importante para capturar errores de conexión
+from pathlib import Path
 
-# 1. Cargamos las variables de entorno
+import psycopg2
+from dotenv import load_dotenv
+from psycopg2.extras import RealDictCursor
+from psycopg2.pool import SimpleConnectionPool
+
 load_dotenv()
 
-# 2. Configuración de la URL
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://enyelberth:30204334@localhost:5432/erp" # Corregido el { que tenías antes
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://enyelberth:30204334@localhost:5432/erp",
 )
 
-# 3. El Engine
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    pool_size=10, 
-    max_overflow=20
+_pool = SimpleConnectionPool(
+    minconn=1,
+    maxconn=10,
+    dsn=DATABASE_URL,
 )
 
-# 4. SessionLocal
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 5. Base
-Base = declarative_base()
+def get_connection():
+    return _pool.getconn()
 
-# 6. Dependencia get_db
+
+def release_connection(conn):
+    _pool.putconn(conn)
+
+
 def get_db():
-    db = SessionLocal()
+    conn = get_connection()
     try:
-        yield db
+        yield conn
     finally:
-        db.close()
+        release_connection(conn)
 
-# --- NUEVA SECCIÓN PARA MENSAJE POR TERMINAL ---
 
-def init_db():
+def fetch_one(conn, query, params=None):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, params or ())
+        return cur.fetchone()
+
+
+def fetch_all(conn, query, params=None):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, params or ())
+        return cur.fetchall()
+
+
+def execute(conn, query, params=None, returning=False):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, params or ())
+        row = cur.fetchone() if returning else None
+    conn.commit()
+    return row
+
+
+def execute_script(conn, script):
+    with conn.cursor() as cur:
+        cur.execute(script)
+    conn.commit()
+
+
+def init_db_from_sql():
+    sql_path = Path(__file__).resolve().parent.parent / "sql.txt"
+    if not sql_path.exists():
+        raise FileNotFoundError(f"No existe el archivo SQL: {sql_path}")
+
+    conn = get_connection()
     try:
-        # Esto busca todas las clases que heredan de 'Base' y crea las tablas
-        # Solo se crearán si no existen previamente.
-        Base.metadata.create_all(bind=engine)
-        print("✅ ¡Conexión exitosa! Las tablas de 'Kaizen ERP' han sido verificadas/creadas.")
-    except OperationalError as e:
-        print("❌ Error: No se pudo conectar a la base de datos.")
-        print(f"Detalle: {e}")
-    except Exception as e:
-        print(f"⚠️ Ocurrió un error inesperado: {e}")
+        existing = fetch_one(conn, "SELECT to_regclass('public.branches') AS table_name")
+        if existing and existing.get("table_name"):
+            print("Esquema ya existe, se omite inicializacion desde sql.txt")
+            return
 
-# Esto permite que si ejecutas 'python database.py' directamente, se cree la BD
+        script = sql_path.read_text(encoding="utf-8")
+        execute_script(conn, script)
+        print("Conexion PostgreSQL OK y esquema aplicado desde sql.txt")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_connection(conn)
+
+
 if __name__ == "__main__":
-    init_db()
+    init_db_from_sql()

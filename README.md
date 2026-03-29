@@ -1,13 +1,13 @@
 # Contab Cloud Backend
 
-Backend API para ERP multi-sede construido con FastAPI, SQLAlchemy y PostgreSQL.
+Backend API para ERP multi-sede construido con FastAPI y PostgreSQL usando SQL puro (sin ORM).
 
 ## Stack
 
 - Python 3.10+
 - FastAPI
 - Uvicorn
-- SQLAlchemy
+- psycopg2-binary
 - PostgreSQL
 - Docker Compose (PostgreSQL + Adminer)
 
@@ -89,7 +89,7 @@ API disponible en:
 - `GET/POST/DELETE /permissions`
 - `POST /permissions/assign`
 
-Nota: al iniciar, la aplicacion ejecuta `metadata.create_all` para verificar o crear tablas.
+Nota: al iniciar, la aplicacion aplica el esquema definido en `sql.txt` si aun no existe.
 
 ## Seed inicial
 
