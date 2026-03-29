@@ -8,3 +8,6 @@ pip install fastapi uvicorn psycopg2-binary pydantic python-dotenv
 pip install -r requirements.txt
 --Run
 uvicorn app.main:app --reload
+
+--Schema SQL
+db/schema.sql

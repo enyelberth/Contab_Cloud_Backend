@@ -89,7 +89,7 @@ API disponible en:
 - `GET/POST/DELETE /permissions`
 - `POST /permissions/assign`
 
-Nota: al iniciar, la aplicacion aplica el esquema definido en `sql.txt` si aun no existe.
+Nota: al iniciar, la aplicacion aplica el esquema definido en `db/schema.sql` si aun no existe.
 
 ## Seed inicial
 

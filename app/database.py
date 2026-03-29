@@ -63,20 +63,15 @@ def execute_script(conn, script):
 
 
 def init_db_from_sql():
-    sql_path = Path(__file__).resolve().parent.parent / "sql.txt"
+    sql_path = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
     if not sql_path.exists():
         raise FileNotFoundError(f"No existe el archivo SQL: {sql_path}")
 
     conn = get_connection()
     try:
-        existing = fetch_one(conn, "SELECT to_regclass('public.branches') AS table_name")
-        if existing and existing.get("table_name"):
-            print("Esquema ya existe, se omite inicializacion desde sql.txt")
-            return
-
         script = sql_path.read_text(encoding="utf-8")
         execute_script(conn, script)
-        print("Conexion PostgreSQL OK y esquema aplicado desde sql.txt")
+        print("Conexion PostgreSQL OK y esquema aplicado desde db/schema.sql")
     except Exception:
         conn.rollback()
         raise
