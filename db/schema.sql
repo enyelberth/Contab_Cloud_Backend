@@ -30,6 +30,50 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     PRIMARY KEY (role_id, permission_id)
 );
 
+CREATE TABLE IF NOT EXISTS role_delegation_rules (
+    id SERIAL PRIMARY KEY,
+    manager_role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    target_role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    can_assign_role BOOLEAN NOT NULL DEFAULT FALSE,
+    can_grant_permissions BOOLEAN NOT NULL DEFAULT FALSE,
+    scope VARCHAR(20) NOT NULL DEFAULT 'company'
+        CHECK (scope IN ('system', 'company')),
+    UNIQUE (manager_role_id, target_role_id)
+);
+
+CREATE TABLE IF NOT EXISTS app_modules (
+    id SERIAL PRIMARY KEY,
+    module_key VARCHAR(60) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    icon VARCHAR(60),
+    route VARCHAR(200),
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS frontend_menus (
+    id SERIAL PRIMARY KEY,
+    menu_key VARCHAR(80) NOT NULL UNIQUE,
+    module_id INTEGER NOT NULL REFERENCES app_modules(id) ON DELETE CASCADE,
+    parent_menu_id INTEGER REFERENCES frontend_menus(id) ON DELETE CASCADE,
+    label VARCHAR(120) NOT NULL,
+    path VARCHAR(200) NOT NULL,
+    icon VARCHAR(60),
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS role_menu_access (
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    menu_id INTEGER NOT NULL REFERENCES frontend_menus(id) ON DELETE CASCADE,
+    can_view BOOLEAN NOT NULL DEFAULT FALSE,
+    can_create BOOLEAN NOT NULL DEFAULT FALSE,
+    can_update BOOLEAN NOT NULL DEFAULT FALSE,
+    can_delete BOOLEAN NOT NULL DEFAULT FALSE,
+    can_assign_permissions BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (role_id, menu_id)
+);
+
 -- --------------------------------------------------------------------
 -- 2) Empresas y sucursales
 -- --------------------------------------------------------------------
@@ -233,9 +277,29 @@ ON CONFLICT (name) DO NOTHING;
 INSERT INTO permissions (name, slug)
 VALUES
     ('Ver dashboard contable', 'dashboard.view'),
+    ('Ver empresas', 'companies.view'),
+    ('Crear empresas', 'companies.create'),
+    ('Editar empresas', 'companies.update'),
+    ('Eliminar empresas', 'companies.delete'),
+    ('Asignar permisos en empresas', 'companies.assign_permissions'),
+    ('Ver usuarios de empresa', 'users.view'),
+    ('Crear usuarios de empresa', 'users.create'),
+    ('Editar usuarios de empresa', 'users.update'),
+    ('Eliminar usuarios de empresa', 'users.delete'),
+    ('Asignar permisos de usuarios', 'users.assign_permissions'),
+    ('Ver contactos', 'contacts.view'),
+    ('Crear contactos', 'contacts.create'),
+    ('Editar contactos', 'contacts.update'),
+    ('Eliminar contactos', 'contacts.delete'),
+    ('Ver catalogo de cuentas', 'accounts.view'),
+    ('Crear cuentas contables', 'accounts.create'),
+    ('Editar cuentas contables', 'accounts.update'),
+    ('Eliminar cuentas contables', 'accounts.delete'),
     ('Gestionar usuarios de empresa', 'company.users.manage'),
     ('Gestionar roles de empresa', 'company.roles.manage'),
     ('Crear asientos contables', 'journal_entries.create'),
+    ('Editar asientos contables', 'journal_entries.update'),
+    ('Eliminar asientos contables', 'journal_entries.delete'),
     ('Publicar asientos contables', 'journal_entries.post'),
     ('Ver libro diario', 'journal_entries.view'),
     ('Ver balance general', 'reports.balance_sheet.view'),
@@ -257,9 +321,27 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.slug IN (
     'dashboard.view',
+    'companies.view',
+    'companies.create',
+    'companies.update',
+    'users.view',
+    'users.create',
+    'users.update',
+    'users.delete',
+    'users.assign_permissions',
+    'contacts.view',
+    'contacts.create',
+    'contacts.update',
+    'contacts.delete',
+    'accounts.view',
+    'accounts.create',
+    'accounts.update',
+    'accounts.delete',
     'company.users.manage',
     'company.roles.manage',
     'journal_entries.create',
+    'journal_entries.update',
+    'journal_entries.delete',
     'journal_entries.post',
     'journal_entries.view',
     'reports.balance_sheet.view',
@@ -275,7 +357,16 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.slug IN (
     'dashboard.view',
+    'companies.view',
+    'users.view',
+    'contacts.view',
+    'contacts.create',
+    'contacts.update',
+    'accounts.view',
+    'accounts.create',
+    'accounts.update',
     'journal_entries.create',
+    'journal_entries.update',
     'journal_entries.post',
     'journal_entries.view',
     'reports.balance_sheet.view',
@@ -296,5 +387,287 @@ JOIN permissions p ON p.slug IN (
 )
 WHERE r.name = 'CLIENTE_LECTURA'
 ON CONFLICT DO NOTHING;
+
+-- --------------------------------------------------------------------
+-- 9) Reglas de delegacion entre roles (roles superiores)
+-- --------------------------------------------------------------------
+INSERT INTO role_delegation_rules (
+    manager_role_id,
+    target_role_id,
+    can_assign_role,
+    can_grant_permissions,
+    scope
+)
+SELECT manager.id, target.id, TRUE, TRUE, 'system'
+FROM roles manager
+JOIN roles target ON TRUE
+WHERE manager.name = 'SUPER_ADMIN'
+ON CONFLICT (manager_role_id, target_role_id) DO UPDATE
+SET can_assign_role = EXCLUDED.can_assign_role,
+    can_grant_permissions = EXCLUDED.can_grant_permissions,
+    scope = EXCLUDED.scope;
+
+INSERT INTO role_delegation_rules (
+    manager_role_id,
+    target_role_id,
+    can_assign_role,
+    can_grant_permissions,
+    scope
+)
+SELECT manager.id, target.id,
+       TRUE,
+       CASE WHEN target.name IN ('CONTADOR', 'CLIENTE_LECTURA') THEN TRUE ELSE FALSE END,
+       'company'
+FROM roles manager
+JOIN roles target ON target.name IN ('CONTADOR', 'CLIENTE_LECTURA')
+WHERE manager.name = 'ADMIN_EMPRESA'
+ON CONFLICT (manager_role_id, target_role_id) DO UPDATE
+SET can_assign_role = EXCLUDED.can_assign_role,
+    can_grant_permissions = EXCLUDED.can_grant_permissions,
+    scope = EXCLUDED.scope;
+
+INSERT INTO role_delegation_rules (
+    manager_role_id,
+    target_role_id,
+    can_assign_role,
+    can_grant_permissions,
+    scope
+)
+SELECT manager.id, target.id, TRUE, FALSE, 'company'
+FROM roles manager
+JOIN roles target ON target.name = 'CLIENTE_LECTURA'
+WHERE manager.name = 'CONTADOR'
+ON CONFLICT (manager_role_id, target_role_id) DO UPDATE
+SET can_assign_role = EXCLUDED.can_assign_role,
+    can_grant_permissions = EXCLUDED.can_grant_permissions,
+    scope = EXCLUDED.scope;
+
+-- --------------------------------------------------------------------
+-- 10) Menus para frontend controlados por BD
+-- --------------------------------------------------------------------
+INSERT INTO app_modules (module_key, name, icon, route, sort_order, is_active)
+VALUES
+    ('dashboard', 'Dashboard', 'layout-dashboard', '/dashboard', 10, TRUE),
+    ('companies', 'Empresas', 'building-2', '/companies', 20, TRUE),
+    ('users', 'Usuarios y Roles', 'users', '/users', 30, TRUE),
+    ('contacts', 'Contactos', 'contact-round', '/contacts', 40, TRUE),
+    ('accounting', 'Contabilidad', 'book-open-text', '/accounting', 50, TRUE),
+    ('reports', 'Reportes', 'bar-chart-3', '/reports', 60, TRUE)
+ON CONFLICT (module_key) DO UPDATE
+SET name = EXCLUDED.name,
+    icon = EXCLUDED.icon,
+    route = EXCLUDED.route,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+INSERT INTO frontend_menus (menu_key, module_id, parent_menu_id, label, path, icon, sort_order, is_active)
+SELECT 'menu.dashboard', m.id, NULL, 'Dashboard', '/dashboard', 'layout-dashboard', 10, TRUE
+FROM app_modules m
+WHERE m.module_key = 'dashboard'
+ON CONFLICT (menu_key) DO UPDATE
+SET module_id = EXCLUDED.module_id,
+    label = EXCLUDED.label,
+    path = EXCLUDED.path,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+INSERT INTO frontend_menus (menu_key, module_id, parent_menu_id, label, path, icon, sort_order, is_active)
+SELECT 'menu.companies', m.id, NULL, 'Empresas', '/companies', 'building-2', 20, TRUE
+FROM app_modules m
+WHERE m.module_key = 'companies'
+ON CONFLICT (menu_key) DO UPDATE
+SET module_id = EXCLUDED.module_id,
+    label = EXCLUDED.label,
+    path = EXCLUDED.path,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+INSERT INTO frontend_menus (menu_key, module_id, parent_menu_id, label, path, icon, sort_order, is_active)
+SELECT 'menu.users', m.id, NULL, 'Usuarios', '/users', 'users', 30, TRUE
+FROM app_modules m
+WHERE m.module_key = 'users'
+ON CONFLICT (menu_key) DO UPDATE
+SET module_id = EXCLUDED.module_id,
+    label = EXCLUDED.label,
+    path = EXCLUDED.path,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+INSERT INTO frontend_menus (menu_key, module_id, parent_menu_id, label, path, icon, sort_order, is_active)
+SELECT 'menu.contacts', m.id, NULL, 'Contactos', '/contacts', 'contact-round', 40, TRUE
+FROM app_modules m
+WHERE m.module_key = 'contacts'
+ON CONFLICT (menu_key) DO UPDATE
+SET module_id = EXCLUDED.module_id,
+    label = EXCLUDED.label,
+    path = EXCLUDED.path,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+INSERT INTO frontend_menus (menu_key, module_id, parent_menu_id, label, path, icon, sort_order, is_active)
+SELECT 'menu.accounting', m.id, NULL, 'Contabilidad', '/accounting/journal-entries', 'book-open-text', 50, TRUE
+FROM app_modules m
+WHERE m.module_key = 'accounting'
+ON CONFLICT (menu_key) DO UPDATE
+SET module_id = EXCLUDED.module_id,
+    label = EXCLUDED.label,
+    path = EXCLUDED.path,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+INSERT INTO frontend_menus (menu_key, module_id, parent_menu_id, label, path, icon, sort_order, is_active)
+SELECT 'menu.reports', m.id, NULL, 'Reportes', '/reports', 'bar-chart-3', 60, TRUE
+FROM app_modules m
+WHERE m.module_key = 'reports'
+ON CONFLICT (menu_key) DO UPDATE
+SET module_id = EXCLUDED.module_id,
+    label = EXCLUDED.label,
+    path = EXCLUDED.path,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_active = EXCLUDED.is_active;
+
+-- Matriz de acceso por rol y menu (ver/crear/editar/eliminar/asignar)
+INSERT INTO role_menu_access (role_id, menu_id, can_view, can_create, can_update, can_delete, can_assign_permissions)
+SELECT r.id, m.id,
+       TRUE,
+       CASE WHEN r.name = 'CLIENTE_LECTURA' THEN FALSE ELSE TRUE END,
+       CASE WHEN r.name = 'CLIENTE_LECTURA' THEN FALSE ELSE TRUE END,
+       CASE WHEN r.name IN ('SUPER_ADMIN', 'ADMIN_EMPRESA') THEN TRUE ELSE FALSE END,
+       CASE WHEN r.name IN ('SUPER_ADMIN', 'ADMIN_EMPRESA') THEN TRUE ELSE FALSE END
+FROM roles r
+JOIN frontend_menus m ON m.menu_key IN (
+    'menu.dashboard',
+    'menu.companies',
+    'menu.users',
+    'menu.contacts',
+    'menu.accounting',
+    'menu.reports'
+)
+WHERE r.name IN ('SUPER_ADMIN', 'ADMIN_EMPRESA', 'CONTADOR')
+ON CONFLICT (role_id, menu_id) DO UPDATE
+SET can_view = EXCLUDED.can_view,
+    can_create = EXCLUDED.can_create,
+    can_update = EXCLUDED.can_update,
+    can_delete = EXCLUDED.can_delete,
+    can_assign_permissions = EXCLUDED.can_assign_permissions;
+
+INSERT INTO role_menu_access (role_id, menu_id, can_view, can_create, can_update, can_delete, can_assign_permissions)
+SELECT r.id, m.id,
+       TRUE, FALSE, FALSE, FALSE, FALSE
+FROM roles r
+JOIN frontend_menus m ON m.menu_key IN ('menu.dashboard', 'menu.reports')
+WHERE r.name = 'CLIENTE_LECTURA'
+ON CONFLICT (role_id, menu_id) DO UPDATE
+SET can_view = EXCLUDED.can_view,
+    can_create = EXCLUDED.can_create,
+    can_update = EXCLUDED.can_update,
+    can_delete = EXCLUDED.can_delete,
+    can_assign_permissions = EXCLUDED.can_assign_permissions;
+
+-- --------------------------------------------------------------------
+-- 11) Datos de prueba (demo)
+-- --------------------------------------------------------------------
+INSERT INTO users (username, email, password_hash, first_name, last_name, user_type, role_id, status)
+SELECT 'superadmin', 'superadmin@contabcloud.dev',
+       '$2b$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOpqrstuv123456',
+       'Super', 'Admin', 'super_admin', r.id, 'active'
+FROM roles r
+WHERE r.name = 'SUPER_ADMIN'
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO users (username, email, password_hash, first_name, last_name, user_type, role_id, status)
+SELECT 'contador.principal', 'contador@empresa-demo.com',
+       '$2b$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOpqrstuv123456',
+       'Ana', 'Contable', 'accountant', r.id, 'active'
+FROM roles r
+WHERE r.name = 'ADMIN_EMPRESA'
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO users (username, email, password_hash, first_name, last_name, user_type, role_id, status)
+SELECT 'contador.asistente', 'asistente@empresa-demo.com',
+       '$2b$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOpqrstuv123456',
+       'Luis', 'Asistente', 'accountant', r.id, 'active'
+FROM roles r
+WHERE r.name = 'CONTADOR'
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO users (username, email, password_hash, first_name, last_name, user_type, role_id, status)
+SELECT 'cliente.lectura', 'cliente@empresa-demo.com',
+       '$2b$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOpqrstuv123456',
+       'Maria', 'Cliente', 'client', r.id, 'active'
+FROM roles r
+WHERE r.name = 'CLIENTE_LECTURA'
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO companies (
+    legal_name,
+    trade_name,
+    tax_id,
+    country,
+    accounting_email,
+    phone,
+    address,
+    status,
+    created_by
+)
+SELECT 'Inversiones Demo, C.A.', 'Empresa Demo', 'J-50000001-1', 'VE',
+       'contabilidad@empresa-demo.com', '+58-251-0000000',
+       'Av. Principal, Barquisimeto', 'active', u.id
+FROM users u
+WHERE u.email = 'contador@empresa-demo.com'
+  AND NOT EXISTS (SELECT 1 FROM companies c WHERE c.tax_id = 'J-50000001-1');
+
+INSERT INTO branches (company_id, name, address, phone, is_active)
+SELECT c.id, 'Sede Principal', 'Centro Empresarial Demo', '+58-251-1111111', TRUE
+FROM companies c
+WHERE c.tax_id = 'J-50000001-1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM branches b
+    WHERE b.company_id = c.id AND b.name = 'Sede Principal'
+  );
+
+INSERT INTO company_memberships (
+    company_id,
+    user_id,
+    role_id,
+    is_primary_accountant,
+    access_level,
+    status,
+    invited_by,
+    invited_at
+)
+SELECT c.id, u.id, r.id,
+       CASE WHEN u.email = 'contador@empresa-demo.com' THEN TRUE ELSE FALSE END,
+       CASE WHEN r.name = 'CLIENTE_LECTURA' THEN 'read_only' ELSE 'full' END,
+       'active', inviter.id, CURRENT_TIMESTAMP
+FROM companies c
+JOIN users inviter ON inviter.email = 'contador@empresa-demo.com'
+JOIN users u ON u.email IN (
+    'contador@empresa-demo.com',
+    'asistente@empresa-demo.com',
+    'cliente@empresa-demo.com'
+)
+JOIN roles r ON r.id = u.role_id
+WHERE c.tax_id = 'J-50000001-1'
+ON CONFLICT (company_id, user_id) DO UPDATE
+SET role_id = EXCLUDED.role_id,
+    is_primary_accountant = EXCLUDED.is_primary_accountant,
+    access_level = EXCLUDED.access_level,
+    status = EXCLUDED.status,
+    invited_by = EXCLUDED.invited_by,
+    invited_at = EXCLUDED.invited_at;
+
+INSERT INTO fiscal_periods (company_id, name, start_date, end_date, status)
+SELECT c.id, '2026', DATE '2026-01-01', DATE '2026-12-31', 'open'
+FROM companies c
+WHERE c.tax_id = 'J-50000001-1'
+ON CONFLICT (company_id, name) DO NOTHING;
 
 COMMIT;

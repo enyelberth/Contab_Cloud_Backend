@@ -99,7 +99,35 @@ Para cargar datos base:
 python seed.py
 ```
 
-El script crea sedes, roles, monedas y tasa inicial si no existen.
+El script aplica el archivo `db/schema.sql` (tablas + permisos + menus + datos demo idempotentes).
+
+Datos demo creados automaticamente:
+
+- Empresa demo: `Inversiones Demo, C.A.` (`J-50000001-1`)
+- Usuarios:
+  - `superadmin@contabcloud.dev` (SUPER_ADMIN)
+  - `contador@empresa-demo.com` (ADMIN_EMPRESA)
+  - `asistente@empresa-demo.com` (CONTADOR)
+  - `cliente@empresa-demo.com` (CLIENTE_LECTURA)
+
+Nota: los `password_hash` son de prueba para desarrollo local.
+
+## Menus y permisos por rol (frontend)
+
+El frontend debe leer menus y permisos desde BD:
+
+- Menus: `frontend_menus`
+- Modulos: `app_modules`
+- Matriz de acceso por rol/menu: `role_menu_access`
+- Reglas de delegacion de roles/permisos: `role_delegation_rules`
+
+Cada menu trae banderas para UI y acciones:
+
+- `can_view`
+- `can_create`
+- `can_update`
+- `can_delete`
+- `can_assign_permissions`
 
 ## Estructura principal
 
