@@ -57,6 +57,15 @@ def execute(conn, query, params=None, returning=False):
     return row
 
 
+def execute_all(conn, query, params=None):
+    """Ejecuta un INSERT/UPDATE con RETURNING y devuelve todas las filas resultantes."""
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, params or ())
+        rows = cur.fetchall()
+    conn.commit()
+    return rows
+
+
 def execute_script(conn, script):
     with conn.cursor() as cur:
         cur.execute(script)
@@ -128,6 +137,47 @@ def init_db_migrations():
         raise
     finally:
         release_connection(conn)
+
+
+def crear_schema_empresa(conn, company_id: int) -> None:
+    """Crea el schema de PostgreSQL y todas las tablas contables para una empresa nueva.
+
+    Debe llamarse justo después de insertar la empresa en la tabla `companies`.
+    El nombre del schema se construye como empresa_{company_id}.
+    Ejemplo: company_id=5 → schema 'empresa_5'.
+    """
+    schema = f"empresa_{int(company_id)}"  # int() previene SQL injection
+    script = f"""
+        CREATE SCHEMA IF NOT EXISTS {schema};
+
+        -- Tabla de prueba / sandbox
+        CREATE TABLE IF NOT EXISTS {schema}.prueba (
+            id          SERIAL PRIMARY KEY,
+            nombre      VARCHAR(100) NOT NULL,
+            descripcion TEXT,
+            created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Catálogo de cuentas (Plan de Cuentas)
+        CREATE TABLE IF NOT EXISTS {schema}.cont_cuentas (
+            id                  SERIAL,
+            txt_cuenta          VARCHAR(50)  NOT NULL,
+            txt_denominacion    VARCHAR(150),
+            txt_nom_corto       VARCHAR(50),
+            num_nivel           INT,
+            txt_status          VARCHAR(50),
+            txt_comentario      VARCHAR(200) DEFAULT '',
+            cuenta_padre        VARCHAR(50),
+            nomb_cuenta_padre   VARCHAR(80),
+            num_tipo_aux        INT          DEFAULT -1,
+            tipo_aux            VARCHAR(50)  DEFAULT '',
+            num_tipo_cuenta     INT          DEFAULT -1,
+            cod_tipo_aux        VARCHAR(10)  DEFAULT '',
+            num_aux             INT          DEFAULT -1,
+            PRIMARY KEY (txt_cuenta)
+        );
+    """
+    execute_script(conn, script)
 
 
 def init_db_from_sql():

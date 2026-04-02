@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 
 from app.audit import log_audit
-from app.database import execute, fetch_all, fetch_one
+from app.database import crear_schema_empresa, execute, fetch_all, fetch_one
 from app.company import schemas
 
 
@@ -67,6 +67,9 @@ def create_company(db, company_data: schemas.CompanyCreate, created_by: int):
             created_by,
         ),
     )
+
+    # Crear el schema de PostgreSQL para esta empresa con todas sus tablas contables
+    crear_schema_empresa(db, company["id"])
 
     log_audit(
         db,
