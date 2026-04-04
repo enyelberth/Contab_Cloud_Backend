@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 /* ================================================================
    SCHEMA MULTI-TENANT ENTERPRISE — POSTGRESQL
    ================================================================ */

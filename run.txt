@@ -9,5 +9,9 @@ pip install -r requirements.txt
 --Run
 uvicorn app.main:app --reload
 
+--Migraciones PostgreSQL
+python -m app.migrate status
+python -m app.migrate up
+
 --Schema SQL
 db/migrations/001_init.sql

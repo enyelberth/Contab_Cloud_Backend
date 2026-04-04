@@ -51,6 +51,7 @@ from app.permissions import router as permissions_router
 from app.company import router as company_router
 from app.access import router as access_router
 from app.auth import router as auth_router
+from app.product import router as product_router
 from app.prueba import router as prueba_router
 from app.cuentas import router as cuentas_router
 
@@ -62,8 +63,6 @@ app.include_router(access_router.router)
 app.include_router(branche_router.router)
 app.include_router(user_router.router, prefix="/sales", tags=["sales"])
 app.include_router(role_router.router)
-app.include_router(prueba_router.router)
-app.include_router(cuentas_router.router)
 
 
 # Registro de Módulos (Incluimos las rutas de cada carpeta)

@@ -91,6 +91,23 @@ API disponible en:
 
 Nota: al iniciar, la aplicacion aplica migraciones SQL versionadas desde `db/migrations`.
 
+## Migraciones PostgreSQL
+
+Comandos disponibles:
+
+```bash
+python -m app.migrate status
+python -m app.migrate up
+```
+
+Convencion de archivos:
+
+- Carpeta: `db/migrations`
+- Formato: `<version>_<descripcion>.sql`
+- Ejemplo: `001_init_enterprise.sql`
+
+La tabla de control de migraciones es `public.schema_migrations` y se crea automaticamente.
+
 ## Seed inicial
 
 Para cargar datos base:
