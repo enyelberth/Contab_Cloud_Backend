@@ -12,8 +12,8 @@ router = APIRouter(prefix="/access", tags=["access"])
     response_model=schemas.UserMenusResponse,
 )
 def read_user_menus(
-    company_id: int,
-    user_id: int,
+    company_id: str,
+    user_id: str,
     db=Depends(get_db),
     _=Depends(require_permission("users.view")),
 ):
@@ -25,8 +25,8 @@ def read_user_menus(
     response_model=schemas.UserPermissionsResponse,
 )
 def read_user_permissions(
-    company_id: int,
-    user_id: int,
+    company_id: str,
+    user_id: str,
     db=Depends(get_db),
     _=Depends(require_permission("users.view")),
 ):
@@ -38,9 +38,9 @@ def read_user_permissions(
     response_model=schemas.DelegationCheckResponse,
 )
 def check_role_delegation(
-    company_id: int,
-    manager_user_id: int,
-    target_role_id: int,
+    company_id: str,
+    manager_user_id: str,
+    target_role_id: str,
     db=Depends(get_db),
     _=Depends(require_permission("users.assign_permissions")),
 ):

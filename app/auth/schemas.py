@@ -24,11 +24,11 @@ class LogoutRequest(BaseModel):
 
 
 class CurrentUserResponse(BaseModel):
-    id: int
+    id: str
     username: str
     email: EmailStr
     first_name: str | None = None
     last_name: str | None = None
-    user_type: str
-    role_id: int | None = None
+    tenant_id: str | None = None
+    role_id: str | None = None
     status: str

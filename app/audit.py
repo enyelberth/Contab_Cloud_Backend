@@ -7,8 +7,8 @@ from app.request_context import get_request_meta
 def log_audit(
     db,
     *,
-    actor_user_id: int | None,
-    company_id: int | None,
+    actor_user_id: str | None,
+    company_id: str | None,
     module: str,
     action: str,
     entity_type: str,
@@ -21,26 +21,30 @@ def log_audit(
     execute(
         db,
         """
-        INSERT INTO audit_logs (
-            actor_user_id, company_id, module, action,
-            entity_type, entity_id, before_data, after_data,
-            ip_address, endpoint, http_method, request_id
+        INSERT INTO audit.activity_logs (
+            tenant_id, user_id, session_id, action,
+            resource, resource_id, metadata,
+            ip_address, user_agent
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
-            actor_user_id,
             company_id,
-            module,
-            action,
-            entity_type,
-            str(entity_id) if entity_id is not None else None,
-            json.dumps(before_data) if before_data is not None else None,
-            json.dumps(after_data) if after_data is not None else None,
-            request_meta.get("ip_address"),
-            request_meta.get("endpoint"),
-            request_meta.get("http_method"),
+            actor_user_id,
             request_meta.get("request_id"),
+            action,
+            f"{module}.{entity_type}",
+            str(entity_id) if entity_id is not None else None,
+            json.dumps(
+                {
+                    "before": before_data,
+                    "after": after_data,
+                    "endpoint": request_meta.get("endpoint"),
+                    "http_method": request_meta.get("http_method"),
+                }
+            ),
+            request_meta.get("ip_address"),
+            None,
         ),
         returning=False,
     )

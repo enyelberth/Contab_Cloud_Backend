@@ -9,11 +9,17 @@ def _get_user_by_email(db, email: str):
     return fetch_one(
         db,
         """
-        SELECT id, username, email, first_name, last_name, user_type,
-               role_id, status, password_hash
-        FROM users
-        WHERE email = %s
-          AND deleted_at IS NULL
+     SELECT u.uuid::text AS id,
+         u.username,
+         u.email,
+         p.first_name,
+         p.first_lastname AS last_name,
+         u.status,
+         u.password_hash
+     FROM global.users u
+     LEFT JOIN global.profiles p ON p.user_id = u.uuid
+     WHERE u.email = %s
+       AND u.deleted_at IS NULL
         """,
         (email,),
     )
@@ -36,10 +42,16 @@ def authenticate_user(db, data: schemas.LoginRequest):
     execute(
         db,
         """
-        INSERT INTO auth_refresh_tokens (user_id, token_hash, jti, expires_at)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO security.user_sessions (user_id, token_hash, expires_at)
+        VALUES (%s::uuid, %s, %s)
         """,
-        (user["id"], refresh_hash, jti, refresh_expires),
+        (user["id"], refresh_hash, refresh_expires),
+    )
+
+    execute(
+        db,
+        "UPDATE global.users SET last_login_at = NOW() WHERE uuid = %s::uuid",
+        (user["id"],),
     )
 
     log_audit(
@@ -61,8 +73,8 @@ def refresh_access_token(db, payload: schemas.RefreshTokenRequest):
     row = fetch_one(
         db,
         """
-        SELECT id, user_id, jti
-        FROM auth_refresh_tokens
+                SELECT uuid::text AS id, user_id::text AS user_id
+                FROM security.user_sessions
         WHERE token_hash = %s
           AND revoked_at IS NULL
           AND expires_at > NOW()
@@ -77,24 +89,24 @@ def refresh_access_token(db, payload: schemas.RefreshTokenRequest):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not active")
 
     access_token, expires_at = security.create_access_token(user["id"])
-    new_refresh_raw, new_refresh_hash, new_refresh_exp, new_jti = security.create_refresh_token()
+    new_refresh_raw, new_refresh_hash, new_refresh_exp, _new_jti = security.create_refresh_token()
 
     execute(
         db,
         """
-        UPDATE auth_refresh_tokens
-        SET revoked_at = NOW(), replaced_by_jti = %s
-        WHERE id = %s
+        UPDATE security.user_sessions
+        SET revoked_at = NOW(), revoked_reason = 'rotated'
+        WHERE uuid = %s::uuid
         """,
-        (new_jti, row["id"]),
+        (row["id"],),
     )
     execute(
         db,
         """
-        INSERT INTO auth_refresh_tokens (user_id, token_hash, jti, expires_at)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO security.user_sessions (user_id, token_hash, expires_at)
+        VALUES (%s::uuid, %s, %s)
         """,
-        (user["id"], new_refresh_hash, new_jti, new_refresh_exp),
+        (user["id"], new_refresh_hash, new_refresh_exp),
     )
 
     log_audit(
@@ -105,8 +117,7 @@ def refresh_access_token(db, payload: schemas.RefreshTokenRequest):
         action="REFRESH",
         entity_type="users",
         entity_id=user["id"],
-        before_data={"jti": row["jti"]},
-        after_data={"jti": new_jti},
+        before_data={"session_id": row["id"]},
     )
 
     return schemas.TokenResponse(
@@ -116,14 +127,14 @@ def refresh_access_token(db, payload: schemas.RefreshTokenRequest):
     )
 
 
-def logout(db, current_user_id: int, payload: schemas.LogoutRequest):
+def logout(db, current_user_id: str, payload: schemas.LogoutRequest):
     refresh_hash = security.hash_refresh_token(payload.refresh_token)
     row = fetch_one(
         db,
         """
-        SELECT id
-        FROM auth_refresh_tokens
-        WHERE user_id = %s
+                SELECT uuid::text AS id
+                FROM security.user_sessions
+                WHERE user_id = %s::uuid
           AND token_hash = %s
           AND revoked_at IS NULL
         """,
@@ -134,7 +145,7 @@ def logout(db, current_user_id: int, payload: schemas.LogoutRequest):
 
     execute(
         db,
-        "UPDATE auth_refresh_tokens SET revoked_at = NOW() WHERE id = %s",
+        "UPDATE security.user_sessions SET revoked_at = NOW(), revoked_reason = 'logout' WHERE uuid = %s::uuid",
         (row["id"],),
     )
 
@@ -151,15 +162,29 @@ def logout(db, current_user_id: int, payload: schemas.LogoutRequest):
     return {"detail": "Logout successful"}
 
 
-def get_current_user_profile(db, user_id: int):
+def get_current_user_profile(db, user_id: str):
     user = fetch_one(
         db,
         """
-        SELECT id, username, email, first_name, last_name, user_type,
-               role_id, status
-        FROM users
-        WHERE id = %s
-          AND deleted_at IS NULL
+     SELECT u.uuid::text AS id,
+         u.username,
+         u.email,
+         p.first_name,
+         p.first_lastname AS last_name,
+         ut.tenant_id::text AS tenant_id,
+         utr.role_id::text AS role_id,
+         u.status
+     FROM global.users u
+     LEFT JOIN global.profiles p ON p.user_id = u.uuid
+     LEFT JOIN global.user_tenants ut ON ut.user_id = u.uuid AND ut.is_active = TRUE
+     LEFT JOIN global.user_tenant_roles utr
+         ON utr.user_id = u.uuid
+        AND (ut.tenant_id IS NULL OR utr.tenant_id = ut.tenant_id)
+        AND utr.revoked_at IS NULL
+     WHERE u.uuid = %s::uuid
+       AND u.deleted_at IS NULL
+     ORDER BY ut.created_at DESC NULLS LAST, utr.assigned_at DESC NULLS LAST
+     LIMIT 1
         """,
         (user_id,),
     )

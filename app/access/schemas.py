@@ -19,31 +19,31 @@ class MenuAccessItem(BaseModel):
 
 
 class UserMenusResponse(BaseModel):
-    user_id: int
-    company_id: int
-    role_id: int
+    user_id: str
+    company_id: str
+    role_id: str
     role_name: str
     menus: List[MenuAccessItem]
 
 
 class PermissionItem(BaseModel):
-    id: int
+    id: str
     name: str
     slug: str
 
 
 class UserPermissionsResponse(BaseModel):
-    user_id: int
-    company_id: int
-    role_id: int
+    user_id: str
+    company_id: str
+    role_id: str
     role_name: str
     permissions: List[PermissionItem]
 
 
 class DelegationCheckResponse(BaseModel):
-    manager_user_id: int
-    company_id: int
-    manager_role_id: int
-    target_role_id: int
+    manager_user_id: str
+    company_id: str
+    manager_role_id: str
+    target_role_id: str
     can_assign_role: bool
     can_grant_permissions: bool
