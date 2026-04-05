@@ -35,12 +35,11 @@ def _has_permission_in_role(db, role_id: str | None, permission_slug: str) -> bo
         SELECT 1 AS ok
         FROM global.role_permissions rp
         INNER JOIN global.roles r ON r.uuid = rp.role_id
-        INNER JOIN global.permissions p ON p.uuid = rp.permission_id
-        WHERE rp.role_id = %s::uuid
-          AND p.slug = %s
-          AND r.deleted_at IS NULL
-          AND p.deleted_at IS NULL
-        LIMIT 1
+         INNER JOIN global.permissions p ON p.uuid = rp.permission_id
+         WHERE rp.role_id = %s::uuid
+           AND p.slug = %s
+           AND r.deleted_at IS NULL
+         LIMIT 1
         """,
         (role_id, permission_slug),
     )
@@ -53,6 +52,10 @@ def require_permission(permission_slug: str, company_scoped: bool = True):
         db=Depends(get_db),
         current_user=Depends(get_current_user),
     ):
+        # super_admin global tiene acceso total
+        if current_user.get("global_role_name") == "super_admin":
+            return current_user
+
         if not company_scoped:
             if _has_permission_in_role(db, current_user.get("role_id"), permission_slug):
                 return current_user

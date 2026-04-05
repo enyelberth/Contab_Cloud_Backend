@@ -1,19 +1,23 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional, List
+from typing import Optional
 
-# --- ESQUEMAS DE PERMISOS ---
-class PermissionBase(BaseModel):
+from pydantic import BaseModel
+
+
+class PermissionCreate(BaseModel):
+    module: str
     name: str
     slug: str
+    description: Optional[str] = None
 
-class PermissionCreate(PermissionBase):
-    pass
 
-class PermissionUpdate(BaseModel):
-    name: Optional[str] = None
-    slug: Optional[str] = None
+class PermissionResponse(BaseModel):
+    id: str
+    module: str
+    name: str
+    slug: str
+    description: Optional[str] = None
 
-class Permission(PermissionBase):
-    id: int
-    model_config = ConfigDict(from_attributes=True)
 
+class PermissionAssign(BaseModel):
+    role_id: str
+    permission_ids: list[str]

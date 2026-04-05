@@ -1,52 +1,65 @@
 from typing import List
+
 from fastapi import APIRouter, Depends, status
+
 from app.auth.dependencies import require_permission
 from app.database import get_db
-from app.permissions import schemas
-from app.role import schemas as role_schemas
-from app.permissions.service import PermissionService # Importamos la clase
+from app.permissions import schemas, service
 
 router = APIRouter(prefix="/permissions", tags=["permissions"])
 
-# ================================================================
-#-- OPERACIONES BÁSICAS (CRUD) DE PERMISOS
-# ================================================================
 
-@router.get("/", response_model=List[schemas.Permission])
-def list_permissions(company_id: int, db=Depends(get_db), _=Depends(require_permission("company.roles.manage"))):
-    svc = PermissionService(db)
-    return svc.get_permissions()
+@router.get("/", response_model=List[schemas.PermissionResponse])
+def list_permissions(
+    skip: int = 0,
+    limit: int = 100,
+    db=Depends(get_db),
+    _=Depends(require_permission("roles.view", company_scoped=False)),
+):
+    return service.get_permissions(db, skip=skip, limit=limit)
 
-@router.post("/", response_model=schemas.Permission, status_code=status.HTTP_201_CREATED)
-def create_permission(permission_in: schemas.PermissionCreate, company_id: int, db=Depends(get_db), current_user=Depends(require_permission("company.roles.manage"))):
-    svc = PermissionService(db)
-    return svc.create_permission(permission_in, actor_user_id=current_user["id"], company_id=company_id)
 
-@router.get("/{permission_id}", response_model=schemas.Permission)
-def get_permission(permission_id: int, company_id: int, db=Depends(get_db), _=Depends(require_permission("company.roles.manage"))):
-    svc = PermissionService(db)
-    return svc.get_permission(permission_id)
+@router.post("/", response_model=schemas.PermissionResponse, status_code=status.HTTP_201_CREATED)
+def create_permission(
+    body: schemas.PermissionCreate,
+    db=Depends(get_db),
+    current_user=Depends(require_permission("roles.create", company_scoped=False)),
+):
+    return service.create_permission(db, body, actor_user_id=current_user["id"])
+
+
+@router.get("/{permission_id}", response_model=schemas.PermissionResponse)
+def get_permission(
+    permission_id: str,
+    db=Depends(get_db),
+    _=Depends(require_permission("roles.view", company_scoped=False)),
+):
+    return service.get_permission(db, permission_id)
+
 
 @router.delete("/{permission_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_permission(permission_id: int, company_id: int, db=Depends(get_db), current_user=Depends(require_permission("company.roles.manage"))):
-    svc = PermissionService(db)
-    svc.delete_permission(permission_id, actor_user_id=current_user["id"], company_id=company_id)
+def delete_permission(
+    permission_id: str,
+    db=Depends(get_db),
+    current_user=Depends(require_permission("roles.delete", company_scoped=False)),
+):
+    service.delete_permission(db, permission_id, actor_user_id=current_user["id"])
     return None
 
-# ================================================================
-#-- CONSULTAS DE ACCESO (RELACIONES)
-# ================================================================
 
-@router.get("/{permission_id}/roles", response_model=List[role_schemas.Role])
-def get_permission_roles(permission_id: int, company_id: int, db=Depends(get_db), _=Depends(require_permission("company.roles.manage"))):
-    svc = PermissionService(db)
-    return svc.get_permission_roles(permission_id)
+@router.post("/assign")
+def assign_permissions(
+    body: schemas.PermissionAssign,
+    db=Depends(get_db),
+    current_user=Depends(require_permission("roles.edit", company_scoped=False)),
+):
+    return service.assign_permissions_to_role(db, body, actor_user_id=current_user["id"])
 
 
-# ================================================================
-#-- Asignar PERMISOS A ROLES
-# ================================================================
-@router.post("/assign", response_model=role_schemas.Role)
-def assign_permissions_to_role(role_id: int, permission_ids: List[int], company_id: int, db=Depends(get_db), current_user=Depends(require_permission("users.assign_permissions"))):
-    svc = PermissionService(db)
-    return svc.assign_permissions_to_role(role_id, permission_ids, actor_user_id=current_user["id"], company_id=company_id)
+@router.get("/roles/{role_id}")
+def get_role_permissions(
+    role_id: str,
+    db=Depends(get_db),
+    _=Depends(require_permission("roles.view", company_scoped=False)),
+):
+    return service.get_role_permissions(db, role_id)

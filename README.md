@@ -110,24 +110,31 @@ La tabla de control de migraciones es `public.schema_migrations` y se crea autom
 
 ## Seed inicial
 
-Para cargar datos base:
+Para cargar datos base e instalar el tenant demo:
 
 ```bash
 python seed.py
 ```
 
-El script aplica migraciones SQL (tablas + permisos + menus + datos demo idempotentes).
+El script aplica migraciones SQL y luego carga datos idempotentes en `global.*`:
+
+- roles del sistema
+- permisos base usados por los routers actuales
+- relaciones rol-permiso
+- tenant demo `empresa-demo`
+- schema del tenant demo
+- usuarios demo, perfiles, membresías y roles
 
 Datos demo creados automaticamente:
 
-- Empresa demo: `Inversiones Demo, C.A.` (`J-50000001-1`)
+- Tenant demo: `Inversiones Demo, C.A.` (`empresa-demo` / `J-50000001-1`)
 - Usuarios:
-  - `superadmin@contabcloud.dev` (SUPER_ADMIN)
-  - `contador@empresa-demo.com` (ADMIN_EMPRESA)
-  - `asistente@empresa-demo.com` (CONTADOR)
-  - `cliente@empresa-demo.com` (CLIENTE_LECTURA)
+  - `superadmin@contabcloud.dev` / `superadmin123` (`super_admin` global + `tenant_admin`)
+  - `admin@empresa-demo.com` / `admin123` (`tenant_admin`)
+  - `contador@empresa-demo.com` / `contador123` (`accountant`)
+  - `cliente@empresa-demo.com` / `cliente123` (`viewer`)
 
-Nota: los `password_hash` son de prueba para desarrollo local.
+Nota: estas credenciales son solo para desarrollo local.
 
 ## Menus y permisos por rol (frontend)
 

@@ -4,41 +4,55 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr
 
 
-class CompanyBase(BaseModel):
-    legal_name: str
-    trade_name: Optional[str] = None
-    tax_id: str
-    country: str = "VE"
-    accounting_email: Optional[EmailStr] = None
-    phone: Optional[str] = None
+class TenantCreate(BaseModel):
+    name: str
+    slug: str
+    rif: Optional[str] = None
     address: Optional[str] = None
+    location: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    plan: str = "enterprise"
 
 
-class CompanyCreate(CompanyBase):
-    pass
+class TenantUpdate(BaseModel):
+    name: Optional[str] = None
+    rif: Optional[str] = None
+    address: Optional[str] = None
+    location: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    plan: Optional[str] = None
 
 
-class CompanyResponse(CompanyBase):
-    id: int
+class TenantResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    rif: Optional[str] = None
+    address: Optional[str] = None
+    location: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
     status: str
-    created_by: Optional[int] = None
+    plan: str
+    schema_name: str
     created_at: datetime
 
 
-class CompanyMembershipCreate(BaseModel):
-    user_id: int
-    role_id: int
-    access_level: str = "full"
+class TenantMemberCreate(BaseModel):
+    user_id: str
+    role_id: str
 
 
-class CompanyMembershipResponse(BaseModel):
-    id: int
-    company_id: int
-    user_id: int
-    role_id: int
-    is_primary_accountant: bool
-    access_level: str
-    status: str
-    invited_by: Optional[int] = None
-    invited_at: Optional[datetime] = None
-    joined_at: datetime
+class TenantMemberResponse(BaseModel):
+    user_id: str
+    tenant_id: str
+    role_id: str
+    role_name: str
+    username: str
+    email: str
+    first_name: Optional[str] = None
+    first_lastname: Optional[str] = None
+    is_active: bool
+    joined_at: Optional[datetime] = None

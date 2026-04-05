@@ -1,7 +1,14 @@
 import json
+from datetime import datetime, date
 
 from app.database import execute
 from app.request_context import get_request_meta
+
+
+def _json_default(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def log_audit(
@@ -41,7 +48,8 @@ def log_audit(
                     "after": after_data,
                     "endpoint": request_meta.get("endpoint"),
                     "http_method": request_meta.get("http_method"),
-                }
+                },
+                default=_json_default,
             ),
             request_meta.get("ip_address"),
             None,

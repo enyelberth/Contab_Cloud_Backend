@@ -1,203 +1,145 @@
 from fastapi import HTTPException
+
 from app.audit import log_audit
 from app.database import execute, fetch_all, fetch_one
+from app.role import schemas
 
 
-def _get_role_permissions(db, role_id: int):
-    return fetch_all(
-        db,
-        """
-        SELECT p.id, p.name, p.slug
-        FROM permissions p
-        INNER JOIN role_permissions rp ON rp.permission_id = p.id
-        WHERE rp.role_id = %s
-                    AND p.deleted_at IS NULL
-        ORDER BY p.id ASC
-        """,
-        (role_id,),
-    )
-
-
-def _role_with_permissions(db, role_row):
-    if not role_row:
-        return None
-    role_data = dict(role_row)
-    role_data["permissions"] = _get_role_permissions(db, role_data["id"])
-    return role_data
-
-
-def get_role(db, role_id: int):
-    role = fetch_one(
-        db,
-        """
-        SELECT id, name, description, scope, is_assignable_to_client
-        FROM roles
-        WHERE id = %s
-                    AND deleted_at IS NULL
-        """,
-        (role_id,),
-    )
-    if not role:
-        raise HTTPException(status_code=404, detail="Role not found")
-    return _role_with_permissions(db, role)
+def _fmt(row: dict) -> dict:
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "description": row.get("description"),
+        "level": row["level"],
+        "is_system": row["is_system"],
+    }
 
 
 def get_roles(db, skip: int = 0, limit: int = 100):
-    roles = fetch_all(
+    rows = fetch_all(
         db,
         """
-        SELECT id, name, description, scope, is_assignable_to_client
-        FROM roles
+        SELECT uuid::text AS id, name, description, level, is_system
+        FROM global.roles
         WHERE deleted_at IS NULL
-        ORDER BY id ASC
+        ORDER BY level DESC, name ASC
         OFFSET %s LIMIT %s
         """,
         (skip, limit),
     )
-    return [_role_with_permissions(db, role) for role in roles]
+    return [_fmt(r) for r in rows]
 
 
-def create_role(db, role_data, actor_user_id: int | None = None, company_id: int | None = None):
-    existing_role = fetch_one(
+def get_role(db, role_id: str):
+    row = fetch_one(
         db,
-        "SELECT id FROM roles WHERE name = %s AND deleted_at IS NULL",
-        (role_data.name,),
+        "SELECT uuid::text AS id, name, description, level, is_system FROM global.roles WHERE uuid = %s::uuid AND deleted_at IS NULL",
+        (role_id,),
     )
-    if existing_role:
-        raise HTTPException(status_code=400, detail="Role name already exists")
+    if not row:
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+    return _fmt(row)
 
-    new_role = execute(
+
+def create_role(db, data: schemas.RoleCreate, actor_user_id: str, tenant_id: str | None = None):
+    existing = fetch_one(
+        db,
+        "SELECT uuid FROM global.roles WHERE name = %s AND deleted_at IS NULL",
+        (data.name,),
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Ya existe un rol con ese nombre")
+
+    row = execute(
         db,
         """
-        INSERT INTO roles (name, description, scope, is_assignable_to_client)
+        INSERT INTO global.roles (name, description, level, is_system)
         VALUES (%s, %s, %s, %s)
-        RETURNING id, name, description, scope, is_assignable_to_client
+        RETURNING uuid::text AS id, name, description, level, is_system
         """,
-        (
-            role_data.name,
-            role_data.description,
-            role_data.scope,
-            role_data.is_assignable_to_client,
-        ),
+        (data.name, data.description, data.level, data.is_system),
         returning=True,
     )
-
-    if role_data.permissions_ids:
-        permissions = fetch_all(
-            db,
-            "SELECT id FROM permissions WHERE id = ANY(%s)",
-            (role_data.permissions_ids,),
-        )
-        if len(permissions) != len(set(role_data.permissions_ids)):
-            raise HTTPException(status_code=400, detail="One or more permissions not found")
-        with db.cursor() as cur:
-            cur.executemany(
-                "INSERT INTO role_permissions (role_id, permission_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                [(new_role["id"], permission_id) for permission_id in role_data.permissions_ids],
-            )
-        db.commit()
-
-    enriched = _role_with_permissions(db, new_role)
+    result = _fmt(row)
     log_audit(
         db,
         actor_user_id=actor_user_id,
-        company_id=company_id,
+        company_id=tenant_id,
         module="roles",
         action="CREATE",
         entity_type="roles",
-        entity_id=new_role["id"],
-        after_data=enriched,
+        entity_id=result["id"],
+        after_data=result,
     )
-    return enriched
+    return result
 
 
-def update_role(db, role_id: int, role_data, actor_user_id: int | None = None, company_id: int | None = None):
-    role = get_role(db, role_id)
+def update_role(db, role_id: str, data: schemas.RoleUpdate, actor_user_id: str, tenant_id: str | None = None):
+    before = get_role(db, role_id)
 
-    if role_data.name is not None:
-        existing_role = fetch_one(
+    if before["is_system"]:
+        raise HTTPException(status_code=403, detail="Los roles de sistema no se pueden modificar")
+
+    payload = data.model_dump(exclude_unset=True)
+    if not payload:
+        return before
+
+    if payload.get("name") and payload["name"] != before["name"]:
+        dup = fetch_one(
             db,
-            "SELECT id FROM roles WHERE name = %s AND id <> %s",
-            (role_data.name, role_id),
+            "SELECT uuid FROM global.roles WHERE name = %s AND uuid <> %s::uuid AND deleted_at IS NULL",
+            (payload["name"], role_id),
         )
-        if existing_role:
-            raise HTTPException(status_code=400, detail="Role name already exists")
-    updated = execute(
+        if dup:
+            raise HTTPException(status_code=400, detail="Ya existe un rol con ese nombre")
+
+    row = execute(
         db,
         """
-        UPDATE roles
-        SET
-            name = COALESCE(%s, name),
+        UPDATE global.roles
+        SET name        = COALESCE(%s, name),
             description = COALESCE(%s, description),
-            scope = COALESCE(%s, scope),
-            is_assignable_to_client = COALESCE(%s, is_assignable_to_client)
-        WHERE id = %s
-        RETURNING id, name, description, scope, is_assignable_to_client
+            level       = COALESCE(%s, level)
+        WHERE uuid = %s::uuid AND deleted_at IS NULL
+        RETURNING uuid::text AS id, name, description, level, is_system
         """,
-        (
-            role_data.name,
-            role_data.description,
-            role_data.scope,
-            role_data.is_assignable_to_client,
-            role_id,
-        ),
+        (payload.get("name"), payload.get("description"), payload.get("level"), role_id),
         returning=True,
     )
-
-    if role_data.permissions_ids is not None:
-        execute(
-            db,
-            "DELETE FROM role_permissions WHERE role_id = %s",
-            (role_id,),
-            returning=False,
-        )
-        if role_data.permissions_ids:
-            permissions = fetch_all(
-                db,
-                "SELECT id FROM permissions WHERE id = ANY(%s)",
-                (role_data.permissions_ids,),
-            )
-            if len(permissions) != len(set(role_data.permissions_ids)):
-                raise HTTPException(status_code=400, detail="One or more permissions not found")
-            with db.cursor() as cur:
-                cur.executemany(
-                    "INSERT INTO role_permissions (role_id, permission_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                    [(role_id, permission_id) for permission_id in role_data.permissions_ids],
-                )
-            db.commit()
-
-    enriched = _role_with_permissions(db, updated or role)
+    result = _fmt(row)
     log_audit(
         db,
         actor_user_id=actor_user_id,
-        company_id=company_id,
+        company_id=tenant_id,
         module="roles",
         action="UPDATE",
         entity_type="roles",
         entity_id=role_id,
-        before_data=role,
-        after_data=enriched,
+        before_data=before,
+        after_data=result,
     )
-    return enriched
+    return result
 
 
-def delete_role(db, role_id: int, actor_user_id: int | None = None, company_id: int | None = None):
+def delete_role(db, role_id: str, actor_user_id: str, tenant_id: str | None = None):
     role = get_role(db, role_id)
+
+    if role["is_system"]:
+        raise HTTPException(status_code=403, detail="Los roles de sistema no se pueden eliminar")
+
     execute(
         db,
-        "UPDATE roles SET deleted_at = NOW() WHERE id = %s AND deleted_at IS NULL",
+        "UPDATE global.roles SET deleted_at = NOW() WHERE uuid = %s::uuid",
         (role_id,),
-        returning=False,
     )
     log_audit(
         db,
         actor_user_id=actor_user_id,
-        company_id=company_id,
+        company_id=tenant_id,
         module="roles",
         action="DELETE",
         entity_type="roles",
         entity_id=role_id,
         before_data=role,
     )
-    return role
-
+    return {"detail": "Rol eliminado correctamente"}

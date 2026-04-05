@@ -5,7 +5,34 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db_migrations
 from app.request_context import reset_request_meta, set_request_meta
 
+from fastapi.openapi.utils import get_openapi
+
 app = FastAPI(title="ERP Multi-Sede")
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title="ERP Multi-Sede",
+        version="1.0.0",
+        routes=app.routes,
+    )
+    schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+    for path in schema.get("paths", {}).values():
+        for operation in path.values():
+            operation["security"] = [{"BearerAuth": []}]
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = custom_openapi
 
 
 @app.on_event("startup")
@@ -44,33 +71,27 @@ async def request_metadata_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     return response
 
+from app.auth import router as auth_router
+from app.company import router as company_router
 from app.branche import router as branche_router
 from app.user import router as user_router
 from app.role import router as role_router
 from app.permissions import router as permissions_router
-from app.company import router as company_router
 from app.access import router as access_router
-from app.auth import router as auth_router
 from app.product import router as product_router
 from app.prueba import router as prueba_router
 from app.cuentas import router as cuentas_router
 
 app.include_router(auth_router.router)
-app.include_router(permissions_router.router)
 app.include_router(company_router.router)
-app.include_router(access_router.router)
-
 app.include_router(branche_router.router)
-app.include_router(user_router.router, prefix="/sales", tags=["sales"])
+app.include_router(user_router.router)
 app.include_router(role_router.router)
+app.include_router(permissions_router.router)
+app.include_router(access_router.router)
 app.include_router(product_router.router)
 app.include_router(prueba_router.router)
 app.include_router(cuentas_router.router)
-
-
-# Registro de Módulos (Incluimos las rutas de cada carpeta)
-#app.include_router(auth_router, prefix="/auth", tags=["Seguridad"])
-#app.include_router(inventory_router, prefix="/inventory", tags=["Inventario"])
 
 @app.get("/")
 def home():

@@ -9,16 +9,6 @@ from app.product import schemas, service
 router = APIRouter(prefix="/companies/{company_id}/products", tags=["products"])
 
 
-@router.post("/", response_model=schemas.ProductResponse)
-def create_product(
-    company_id: str,
-    payload: schemas.ProductCreate,
-    db=Depends(get_db),
-    _=Depends(require_permission("products.create")),
-):
-    return service.create_product(db, tenant_id=company_id, data=payload)
-
-
 @router.get("/", response_model=List[schemas.ProductResponse])
 def list_products(
     company_id: str,
@@ -28,6 +18,16 @@ def list_products(
     _=Depends(require_permission("products.view")),
 ):
     return service.list_products(db, tenant_id=company_id, skip=skip, limit=limit)
+
+
+@router.post("/", response_model=schemas.ProductResponse, status_code=201)
+def create_product(
+    company_id: str,
+    body: schemas.ProductCreate,
+    db=Depends(get_db),
+    current_user=Depends(require_permission("products.create")),
+):
+    return service.create_product(db, tenant_id=company_id, data=body, actor_user_id=current_user["id"])
 
 
 @router.get("/{product_id}", response_model=schemas.ProductResponse)
@@ -44,11 +44,11 @@ def get_product(
 def update_product(
     company_id: str,
     product_id: str,
-    payload: schemas.ProductUpdate,
+    body: schemas.ProductUpdate,
     db=Depends(get_db),
-    _=Depends(require_permission("products.update")),
+    current_user=Depends(require_permission("products.edit")),
 ):
-    return service.update_product(db, tenant_id=company_id, product_id=product_id, data=payload)
+    return service.update_product(db, tenant_id=company_id, product_id=product_id, data=body, actor_user_id=current_user["id"])
 
 
 @router.delete("/{product_id}")
@@ -56,6 +56,6 @@ def delete_product(
     company_id: str,
     product_id: str,
     db=Depends(get_db),
-    _=Depends(require_permission("products.delete")),
+    current_user=Depends(require_permission("products.delete")),
 ):
-    return service.delete_product(db, tenant_id=company_id, product_id=product_id)
+    return service.delete_product(db, tenant_id=company_id, product_id=product_id, actor_user_id=current_user["id"])

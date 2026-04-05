@@ -173,6 +173,8 @@ def get_current_user_profile(db, user_id: str):
          p.first_lastname AS last_name,
          ut.tenant_id::text AS tenant_id,
          utr.role_id::text AS role_id,
+         r.name AS role_name,
+         gr.name AS global_role_name,
          u.status
      FROM global.users u
      LEFT JOIN global.profiles p ON p.user_id = u.uuid
@@ -181,6 +183,10 @@ def get_current_user_profile(db, user_id: str):
          ON utr.user_id = u.uuid
         AND (ut.tenant_id IS NULL OR utr.tenant_id = ut.tenant_id)
         AND utr.revoked_at IS NULL
+     LEFT JOIN global.roles r ON r.uuid = utr.role_id
+     LEFT JOIN global.user_global_roles ugr
+         ON ugr.user_id = u.uuid AND ugr.revoked_at IS NULL
+     LEFT JOIN global.roles gr ON gr.uuid = ugr.role_id
      WHERE u.uuid = %s::uuid
        AND u.deleted_at IS NULL
      ORDER BY ut.created_at DESC NULLS LAST, utr.assigned_at DESC NULLS LAST
