@@ -1,97 +1,121 @@
 from fastapi import HTTPException
 
 from app.audit import log_audit
-from app.database import execute, fetch_all, fetch_one
 from app.company import schemas
+from app.database import execute, execute_script, fetch_all, fetch_one
 
 
-def create_company(db, company_data: schemas.CompanyCreate, created_by: int):
-    existing = fetch_one(db, "SELECT id FROM companies WHERE tax_id = %s AND deleted_at IS NULL", (company_data.tax_id,))
-    if existing:
-        raise HTTPException(status_code=400, detail="Company tax_id already exists")
-
-    creator = fetch_one(db, "SELECT id FROM users WHERE id = %s", (created_by,))
-    if not creator:
-        raise HTTPException(status_code=400, detail="Creator user not found")
-
-    company = execute(
+def _get_tenant_by_id(db, tenant_id: str):
+    return fetch_one(
         db,
         """
-        INSERT INTO companies (
-            legal_name, trade_name, tax_id, country,
-            accounting_email, phone, address, status, created_by
+        SELECT uuid::text AS id, name, slug, rif, address, location, phone, email,
+               status, plan, schema_name, created_at
+        FROM global.tenants
+        WHERE uuid = %s::uuid AND deleted_at IS NULL
+        """,
+        (tenant_id,),
+    )
+
+
+def create_tenant(db, data: schemas.TenantCreate, created_by: str):
+    existing = fetch_one(
+        db,
+        "SELECT uuid FROM global.tenants WHERE slug = %s AND deleted_at IS NULL",
+        (data.slug,),
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="El slug ya está en uso")
+
+    if data.rif:
+        dup = fetch_one(
+            db,
+            "SELECT uuid FROM global.tenants WHERE rif = %s AND deleted_at IS NULL",
+            (data.rif,),
         )
+        if dup:
+            raise HTTPException(status_code=400, detail="El RIF ya está registrado")
+
+    tenant = execute(
+        db,
+        """
+        INSERT INTO global.tenants (name, slug, rif, address, location, phone, email, status, plan)
         VALUES (%s, %s, %s, %s, %s, %s, %s, 'active', %s)
-        RETURNING id, legal_name, trade_name, tax_id, country,
-                  accounting_email, phone, address, status, created_by, created_at
+        RETURNING uuid::text AS id, name, slug, rif, address, location, phone, email,
+                  status, plan, schema_name, created_at
         """,
         (
-            company_data.legal_name,
-            company_data.trade_name,
-            company_data.tax_id,
-            company_data.country,
-            company_data.accounting_email,
-            company_data.phone,
-            company_data.address,
-            created_by,
+            data.name,
+            data.slug,
+            data.rif,
+            data.address,
+            data.location,
+            data.phone,
+            str(data.email) if data.email else None,
+            data.plan,
         ),
         returning=True,
     )
 
-    admin_role = fetch_one(db, "SELECT id FROM roles WHERE name = 'ADMIN_EMPRESA'", ())
-    if not admin_role:
-        raise HTTPException(status_code=500, detail="ADMIN_EMPRESA role is missing")
+    # Crear schema del tenant con todas sus tablas
+    with db.cursor() as cur:
+        cur.execute("CALL global.sp_create_tenant_schema(%s)", (data.slug,))
+    db.commit()
 
+    # Vincular el creador como tenant_admin
+    tenant_admin_role = fetch_one(
+        db,
+        "SELECT uuid::text AS id FROM global.roles WHERE name = 'tenant_admin' AND deleted_at IS NULL",
+    )
+    if not tenant_admin_role:
+        raise HTTPException(status_code=500, detail="Rol tenant_admin no encontrado")
+
+    # user_tenants
     execute(
         db,
         """
-        INSERT INTO company_memberships (
-            company_id, user_id, role_id,
-            is_primary_accountant, access_level, status,
-            invited_by, invited_at
-        )
-        VALUES (%s, %s, %s, TRUE, 'full', 'active', %s, NOW())
-        ON CONFLICT (company_id, user_id)
-        DO UPDATE SET
-            role_id = EXCLUDED.role_id,
-            is_primary_accountant = EXCLUDED.is_primary_accountant,
-            access_level = EXCLUDED.access_level,
-            status = EXCLUDED.status,
-            invited_by = EXCLUDED.invited_by,
-            invited_at = EXCLUDED.invited_at
+        INSERT INTO global.user_tenants (user_id, tenant_id, is_active, invited_by, joined_at)
+        VALUES (%s::uuid, %s::uuid, TRUE, %s::uuid, NOW())
+        ON CONFLICT (user_id, tenant_id) DO UPDATE SET is_active = TRUE, joined_at = NOW()
         """,
-        (
-            company["id"],
-            created_by,
-            admin_role["id"],
-            created_by,
-        ),
+        (created_by, tenant["id"], created_by),
+    )
+
+    # user_tenant_roles
+    execute(
+        db,
+        """
+        INSERT INTO global.user_tenant_roles (user_id, tenant_id, role_id, assigned_by)
+        VALUES (%s::uuid, %s::uuid, %s::uuid, %s::uuid)
+        ON CONFLICT DO NOTHING
+        """,
+        (created_by, tenant["id"], tenant_admin_role["id"], created_by),
     )
 
     log_audit(
         db,
         actor_user_id=created_by,
-        company_id=company["id"],
+        company_id=tenant["id"],
         module="companies",
         action="CREATE",
-        entity_type="companies",
-        entity_id=company["id"],
-        after_data=company,
+        entity_type="tenants",
+        entity_id=tenant["id"],
+        after_data=dict(tenant),
     )
 
-    return company
+    return tenant
 
 
-def get_companies(db, skip: int = 0, limit: int = 100, user_id: int | None = None):
+def get_tenants(db, skip: int = 0, limit: int = 100, user_id: str | None = None):
     if user_id is None:
         return fetch_all(
             db,
             """
-            SELECT id, legal_name, trade_name, tax_id, country,
-                   accounting_email, phone, address, status, created_by, created_at
-            FROM companies
+            SELECT uuid::text AS id, name, slug, rif, address, location, phone, email,
+                   status, plan, schema_name, created_at
+            FROM global.tenants
             WHERE deleted_at IS NULL
-            ORDER BY id ASC
+            ORDER BY created_at DESC
             OFFSET %s LIMIT %s
             """,
             (skip, limit),
@@ -100,198 +124,217 @@ def get_companies(db, skip: int = 0, limit: int = 100, user_id: int | None = Non
     return fetch_all(
         db,
         """
-        SELECT c.id, c.legal_name, c.trade_name, c.tax_id, c.country,
-               c.accounting_email, c.phone, c.address, c.status, c.created_by, c.created_at
-        FROM companies c
-        INNER JOIN company_memberships cm ON cm.company_id = c.id
-        WHERE cm.user_id = %s
-          AND cm.status = 'active'
-                    AND cm.deleted_at IS NULL
-                    AND c.deleted_at IS NULL
-        ORDER BY c.id ASC
+        SELECT t.uuid::text AS id, t.name, t.slug, t.rif, t.address, t.location,
+               t.phone, t.email, t.status, t.plan, t.schema_name, t.created_at
+        FROM global.tenants t
+        INNER JOIN global.user_tenants ut ON ut.tenant_id = t.uuid
+        WHERE ut.user_id = %s::uuid
+          AND ut.is_active = TRUE
+          AND t.deleted_at IS NULL
+        ORDER BY t.created_at DESC
         OFFSET %s LIMIT %s
         """,
         (user_id, skip, limit),
     )
 
 
-def _check_delegation(db, manager_role_id: int, target_role_id: int):
-    return fetch_one(
+def get_tenant(db, tenant_id: str):
+    tenant = _get_tenant_by_id(db, tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+    return tenant
+
+
+def update_tenant(db, tenant_id: str, data: schemas.TenantUpdate, actor_user_id: str):
+    tenant = get_tenant(db, tenant_id)
+    payload = data.model_dump(exclude_unset=True)
+    if not payload:
+        return tenant
+
+    updated = execute(
         db,
         """
-        SELECT can_assign_role, can_grant_permissions
-        FROM role_delegation_rules
-        WHERE manager_role_id = %s AND target_role_id = %s
-        """,
-        (manager_role_id, target_role_id),
-    )
-
-
-def add_company_member(db, company_id: int, data: schemas.CompanyMembershipCreate, invited_by: int):
-    company = fetch_one(db, "SELECT id FROM companies WHERE id = %s AND deleted_at IS NULL", (company_id,))
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    user = fetch_one(db, "SELECT id FROM users WHERE id = %s AND deleted_at IS NULL", (data.user_id,))
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    role = fetch_one(db, "SELECT id, name FROM roles WHERE id = %s AND deleted_at IS NULL", (data.role_id,))
-    if not role:
-        raise HTTPException(status_code=404, detail="Role not found")
-
-    inviter_membership = fetch_one(
-        db,
-        """
-        SELECT role_id
-        FROM company_memberships
-        WHERE company_id = %s
-          AND user_id = %s
-          AND status = 'active'
-                    AND deleted_at IS NULL
-        """,
-                (company_id, invited_by),
-    )
-    if not inviter_membership:
-        raise HTTPException(status_code=403, detail="Inviter has no active membership in company")
-
-    delegation = _check_delegation(db, inviter_membership["role_id"], data.role_id)
-    if not delegation or not delegation["can_assign_role"]:
-        raise HTTPException(status_code=403, detail="Inviter cannot assign this role")
-
-    membership = execute(
-        db,
-        """
-        INSERT INTO company_memberships (
-            company_id, user_id, role_id,
-            is_primary_accountant, access_level,
-            status, invited_by, invited_at
-        )
-        VALUES (%s, %s, %s, FALSE, %s, 'active', %s, NOW())
-        ON CONFLICT (company_id, user_id)
-        DO UPDATE SET
-            role_id = EXCLUDED.role_id,
-            access_level = EXCLUDED.access_level,
-            status = EXCLUDED.status,
-            invited_by = EXCLUDED.invited_by,
-            invited_at = EXCLUDED.invited_at
-        RETURNING id, company_id, user_id, role_id,
-                  is_primary_accountant, access_level,
-                  status, invited_by, invited_at, joined_at
+        UPDATE global.tenants
+        SET name      = COALESCE(%s, name),
+            rif       = COALESCE(%s, rif),
+            address   = COALESCE(%s, address),
+            location  = COALESCE(%s, location),
+            phone     = COALESCE(%s, phone),
+            email     = COALESCE(%s, email),
+            plan      = COALESCE(%s, plan),
+            updated_at = NOW()
+        WHERE uuid = %s::uuid AND deleted_at IS NULL
+        RETURNING uuid::text AS id, name, slug, rif, address, location, phone, email,
+                  status, plan, schema_name, created_at
         """,
         (
-            company_id,
-            data.user_id,
-            data.role_id,
-            data.access_level,
-            invited_by,
+            payload.get("name"),
+            payload.get("rif"),
+            payload.get("address"),
+            payload.get("location"),
+            payload.get("phone"),
+            str(payload["email"]) if payload.get("email") else None,
+            payload.get("plan"),
+            tenant_id,
         ),
         returning=True,
     )
+
     log_audit(
         db,
-        actor_user_id=invited_by,
-        company_id=company_id,
-        module="company_memberships",
-        action="CREATE",
-        entity_type="company_memberships",
-        entity_id=membership["id"],
-        after_data=membership,
+        actor_user_id=actor_user_id,
+        company_id=tenant_id,
+        module="companies",
+        action="UPDATE",
+        entity_type="tenants",
+        entity_id=tenant_id,
+        before_data=dict(tenant),
+        after_data=dict(updated),
     )
-    return membership
+    return updated
 
 
-def get_company_members(db, company_id: int):
+def delete_tenant(db, tenant_id: str, actor_user_id: str):
+    tenant = get_tenant(db, tenant_id)
+
+    execute(
+        db,
+        "UPDATE global.tenants SET deleted_at = NOW(), status = 'cancelled' WHERE uuid = %s::uuid",
+        (tenant_id,),
+    )
+    execute(
+        db,
+        "UPDATE global.user_tenants SET is_active = FALSE WHERE tenant_id = %s::uuid",
+        (tenant_id,),
+    )
+
+    log_audit(
+        db,
+        actor_user_id=actor_user_id,
+        company_id=tenant_id,
+        module="companies",
+        action="DELETE",
+        entity_type="tenants",
+        entity_id=tenant_id,
+        before_data=dict(tenant),
+    )
+    return {"detail": "Empresa eliminada correctamente"}
+
+
+def get_members(db, tenant_id: str):
+    get_tenant(db, tenant_id)
     return fetch_all(
         db,
         """
-        SELECT id, company_id, user_id, role_id,
-               is_primary_accountant, access_level,
-               status, invited_by, invited_at, joined_at
-        FROM company_memberships
-        WHERE company_id = %s
-          AND deleted_at IS NULL
-        ORDER BY id ASC
+        SELECT u.uuid::text AS user_id,
+               ut.tenant_id::text AS tenant_id,
+               utr.role_id::text AS role_id,
+               r.name AS role_name,
+               u.username,
+               u.email,
+               p.first_name,
+               p.first_lastname,
+               ut.is_active,
+               ut.joined_at
+        FROM global.user_tenants ut
+        INNER JOIN global.users u ON u.uuid = ut.user_id
+        LEFT JOIN global.profiles p ON p.user_id = ut.user_id
+        LEFT JOIN global.user_tenant_roles utr
+               ON utr.user_id = ut.user_id
+              AND utr.tenant_id = ut.tenant_id
+              AND utr.revoked_at IS NULL
+        LEFT JOIN global.roles r ON r.uuid = utr.role_id
+        WHERE ut.tenant_id = %s::uuid
+          AND u.deleted_at IS NULL
+        ORDER BY ut.joined_at ASC
         """,
-        (company_id,),
+        (tenant_id,),
     )
 
 
-def delete_company(db, company_id: int, actor_user_id: int):
-    company = fetch_one(
+def add_member(db, tenant_id: str, data: schemas.TenantMemberCreate, invited_by: str):
+    get_tenant(db, tenant_id)
+
+    user = fetch_one(
         db,
-        """
-        SELECT id, legal_name, trade_name, tax_id, country,
-               accounting_email, phone, address, status, created_by, created_at
-        FROM companies
-        WHERE id = %s AND deleted_at IS NULL
-        """,
-        (company_id,),
+        "SELECT uuid::text AS id FROM global.users WHERE uuid = %s::uuid AND deleted_at IS NULL",
+        (data.user_id,),
     )
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    role = fetch_one(
+        db,
+        "SELECT uuid::text AS id FROM global.roles WHERE uuid = %s::uuid AND deleted_at IS NULL",
+        (data.role_id,),
+    )
+    if not role:
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
 
     execute(
         db,
-        "UPDATE companies SET deleted_at = NOW(), status = 'archived' WHERE id = %s",
-        (company_id,),
+        """
+        INSERT INTO global.user_tenants (user_id, tenant_id, is_active, invited_by, joined_at)
+        VALUES (%s::uuid, %s::uuid, TRUE, %s::uuid, NOW())
+        ON CONFLICT (user_id, tenant_id) DO UPDATE SET is_active = TRUE
+        """,
+        (data.user_id, tenant_id, invited_by),
     )
+
     execute(
         db,
         """
-        UPDATE company_memberships
-        SET deleted_at = NOW(), status = 'removed'
-        WHERE company_id = %s AND deleted_at IS NULL
+        INSERT INTO global.user_tenant_roles (user_id, tenant_id, role_id, assigned_by)
+        VALUES (%s::uuid, %s::uuid, %s::uuid, %s::uuid)
+        ON CONFLICT DO NOTHING
         """,
-        (company_id,),
+        (data.user_id, tenant_id, data.role_id, invited_by),
     )
+
     log_audit(
         db,
-        actor_user_id=actor_user_id,
-        company_id=company_id,
+        actor_user_id=invited_by,
+        company_id=tenant_id,
         module="companies",
-        action="DELETE",
-        entity_type="companies",
-        entity_id=company_id,
-        before_data=company,
+        action="CREATE",
+        entity_type="user_tenants",
+        entity_id=data.user_id,
+        after_data={"user_id": data.user_id, "role_id": data.role_id},
     )
-    return {"detail": "Company archived successfully"}
+
+    members = get_members(db, tenant_id)
+    return next((m for m in members if m["user_id"] == data.user_id), None)
 
 
-def remove_company_member(db, company_id: int, user_id: int, actor_user_id: int):
+def remove_member(db, tenant_id: str, user_id: str, actor_user_id: str):
+    get_tenant(db, tenant_id)
+
     membership = fetch_one(
         db,
-        """
-        SELECT id, company_id, user_id, role_id,
-               is_primary_accountant, access_level,
-               status, invited_by, invited_at, joined_at
-        FROM company_memberships
-        WHERE company_id = %s
-          AND user_id = %s
-          AND deleted_at IS NULL
-        """,
-        (company_id, user_id),
+        "SELECT uuid FROM global.user_tenants WHERE tenant_id = %s::uuid AND user_id = %s::uuid AND is_active = TRUE",
+        (tenant_id, user_id),
     )
     if not membership:
-        raise HTTPException(status_code=404, detail="Membership not found")
+        raise HTTPException(status_code=404, detail="El usuario no es miembro activo de esta empresa")
 
     execute(
         db,
-        """
-        UPDATE company_memberships
-        SET deleted_at = NOW(), status = 'removed'
-        WHERE id = %s
-        """,
-        (membership["id"],),
+        "UPDATE global.user_tenants SET is_active = FALSE WHERE tenant_id = %s::uuid AND user_id = %s::uuid",
+        (tenant_id, user_id),
     )
+    execute(
+        db,
+        "UPDATE global.user_tenant_roles SET revoked_at = NOW(), revoked_by = %s::uuid WHERE tenant_id = %s::uuid AND user_id = %s::uuid AND revoked_at IS NULL",
+        (actor_user_id, tenant_id, user_id),
+    )
+
     log_audit(
         db,
         actor_user_id=actor_user_id,
-        company_id=company_id,
-        module="company_memberships",
+        company_id=tenant_id,
+        module="companies",
         action="DELETE",
-        entity_type="company_memberships",
-        entity_id=membership["id"],
-        before_data=membership,
+        entity_type="user_tenants",
+        entity_id=user_id,
     )
-    return {"detail": "Member removed successfully"}
+    return {"detail": "Miembro removido correctamente"}

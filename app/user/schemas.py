@@ -1,35 +1,38 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
-class UserBase(BaseModel):
+from pydantic import BaseModel, EmailStr, Field
+
+
+class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    user_type: str = "accountant"
-    branch_id: Optional[int] = None
-    role_id: Optional[int] = None
-    status: Optional[str] = "active"
-
-class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
+    first_name: Optional[str] = None
+    first_lastname: Optional[str] = None
+    phone: Optional[str] = None
+    role_id: str  # UUID del rol en el tenant
+
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[EmailStr] = None
     first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    user_type: Optional[str] = None
-    password: Optional[str] = None
-    branch_id: Optional[int] = None
-    role_id: Optional[int] = None
+    first_lastname: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = Field(default=None, min_length=6)
     status: Optional[str] = None
 
-class UserResponse(UserBase):
-    id: int
-    created_at: datetime
-    company_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+    first_name: Optional[str] = None
+    first_lastname: Optional[str] = None
+    phone: Optional[str] = None
+    status: str
+    role_id: Optional[str] = None
+    role_name: Optional[str] = None
+    tenant_id: Optional[str] = None
+    created_at: datetime
