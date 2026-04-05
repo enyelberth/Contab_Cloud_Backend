@@ -58,6 +58,14 @@ def execute(conn, query, params=None, returning=False):
     return row
 
 
+def execute_all(conn, query, params=None):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, params or ())
+        rows = cur.fetchall()
+    conn.commit()
+    return [dict(r) for r in rows]
+
+
 def execute_script(conn, script):
     with conn.cursor() as cur:
         cur.execute(script)
@@ -66,6 +74,7 @@ def execute_script(conn, script):
 
 def _ensure_schema_migrations(conn):
     with conn.cursor() as cur:
+        cur.execute("SET search_path TO public")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS schema_migrations (

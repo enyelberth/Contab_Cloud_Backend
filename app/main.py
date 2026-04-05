@@ -79,6 +79,9 @@ from app.role import router as role_router
 from app.permissions import router as permissions_router
 from app.access import router as access_router
 from app.product import router as product_router
+from app.cuentas import router as cuentas_router
+from app.meses import router as meses_router
+from app.ejercicio import router as ejercicio_router
 
 app.include_router(auth_router.router)
 app.include_router(company_router.router)
@@ -88,6 +91,9 @@ app.include_router(role_router.router)
 app.include_router(permissions_router.router)
 app.include_router(access_router.router)
 app.include_router(product_router.router)
+app.include_router(cuentas_router.router)
+app.include_router(meses_router.router)
+app.include_router(ejercicio_router.router)
 
 @app.get("/")
 def home():
