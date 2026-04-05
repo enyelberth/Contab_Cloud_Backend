@@ -50,7 +50,6 @@ def get_user_permissions(db, user_id: str, company_id: str):
         FROM global.role_permissions rp
         INNER JOIN global.permissions p ON p.uuid = rp.permission_id
         WHERE rp.role_id = %s::uuid
-          AND p.deleted_at IS NULL
         ORDER BY p.slug ASC
         """,
         (membership["role_id"],),
@@ -76,7 +75,6 @@ def check_delegation(db, manager_user_id: str, company_id: str, target_role_id: 
         JOIN global.permissions p ON p.uuid = rp.permission_id
         WHERE rp.role_id = %s::uuid
           AND p.slug = 'users.assign_permissions'
-          AND p.deleted_at IS NULL
         LIMIT 1
         """,
         (membership["role_id"],),
