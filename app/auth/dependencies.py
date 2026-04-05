@@ -52,6 +52,10 @@ def require_permission(permission_slug: str, company_scoped: bool = True):
         db=Depends(get_db),
         current_user=Depends(get_current_user),
     ):
+        # super_admin global tiene acceso total
+        if current_user.get("global_role_name") == "super_admin":
+            return current_user
+
         if not company_scoped:
             if _has_permission_in_role(db, current_user.get("role_id"), permission_slug):
                 return current_user

@@ -38,8 +38,16 @@ BEGIN
                 WHERE table_schema = r.schema_name AND table_name = 'products' AND column_name = 'tenant_id'
             ) THEN
                 EXECUTE format(
-                    'ALTER TABLE %I.products ADD COLUMN tenant_id UUID NOT NULL DEFAULT (SELECT uuid FROM global.tenants WHERE schema_name = %L LIMIT 1)',
+                    'ALTER TABLE %I.products ADD COLUMN tenant_id UUID',
+                    r.schema_name
+                );
+                EXECUTE format(
+                    'UPDATE %I.products SET tenant_id = (SELECT uuid FROM global.tenants WHERE schema_name = %L LIMIT 1)',
                     r.schema_name, r.schema_name
+                );
+                EXECUTE format(
+                    'ALTER TABLE %I.products ALTER COLUMN tenant_id SET NOT NULL',
+                    r.schema_name
                 );
             END IF;
             IF NOT EXISTS (

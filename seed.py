@@ -9,84 +9,40 @@ from app.auth.security import hash_password
 
 
 PERMISSIONS: tuple[dict[str, str], ...] = (
-    {
-        "module": "companies",
-        "name": "Ver empresas",
-        "slug": "companies.view",
-        "description": "Permite consultar empresas registradas.",
-    },
-    {
-        "module": "companies",
-        "name": "Crear empresas",
-        "slug": "companies.create",
-        "description": "Permite registrar nuevas empresas.",
-    },
-    {
-        "module": "companies",
-        "name": "Eliminar empresas",
-        "slug": "companies.delete",
-        "description": "Permite archivar empresas.",
-    },
-    {
-        "module": "roles",
-        "name": "Gestionar roles de empresa",
-        "slug": "company.roles.manage",
-        "description": "Permite administrar roles y permisos dentro de una empresa.",
-    },
-    {
-        "module": "users",
-        "name": "Ver usuarios",
-        "slug": "users.view",
-        "description": "Permite consultar usuarios y membresias.",
-    },
-    {
-        "module": "users",
-        "name": "Crear usuarios",
-        "slug": "users.create",
-        "description": "Permite crear usuarios dentro de una empresa.",
-    },
-    {
-        "module": "users",
-        "name": "Actualizar usuarios",
-        "slug": "users.update",
-        "description": "Permite editar datos de usuarios.",
-    },
-    {
-        "module": "users",
-        "name": "Eliminar usuarios",
-        "slug": "users.delete",
-        "description": "Permite remover usuarios de una empresa.",
-    },
-    {
-        "module": "users",
-        "name": "Asignar permisos",
-        "slug": "users.assign_permissions",
-        "description": "Permite asignar roles y permisos a otros usuarios.",
-    },
-    {
-        "module": "products",
-        "name": "Ver productos",
-        "slug": "products.view",
-        "description": "Permite consultar catalogo de productos.",
-    },
-    {
-        "module": "products",
-        "name": "Crear productos",
-        "slug": "products.create",
-        "description": "Permite registrar productos.",
-    },
-    {
-        "module": "products",
-        "name": "Actualizar productos",
-        "slug": "products.update",
-        "description": "Permite editar productos.",
-    },
-    {
-        "module": "products",
-        "name": "Eliminar productos",
-        "slug": "products.delete",
-        "description": "Permite desactivar productos.",
-    },
+    # Empresas / Tenants
+    {"module": "companies", "name": "Ver empresas",    "slug": "companies.view",   "description": "Consultar empresas registradas."},
+    {"module": "companies", "name": "Crear empresa",   "slug": "companies.create", "description": "Registrar nuevas empresas."},
+    {"module": "companies", "name": "Editar empresa",  "slug": "companies.edit",   "description": "Modificar datos de empresas."},
+    {"module": "companies", "name": "Eliminar empresa","slug": "companies.delete", "description": "Archivar empresas."},
+    # Usuarios
+    {"module": "users", "name": "Ver usuarios",    "slug": "users.view",   "description": "Consultar usuarios y membresías."},
+    {"module": "users", "name": "Crear usuario",   "slug": "users.create", "description": "Crear usuarios dentro de una empresa."},
+    {"module": "users", "name": "Editar usuario",  "slug": "users.edit",   "description": "Editar datos de usuarios."},
+    {"module": "users", "name": "Eliminar usuario","slug": "users.delete", "description": "Remover usuarios de una empresa."},
+    # Roles
+    {"module": "roles", "name": "Ver roles",    "slug": "roles.view",   "description": "Consultar roles del sistema."},
+    {"module": "roles", "name": "Crear rol",    "slug": "roles.create", "description": "Crear nuevos roles."},
+    {"module": "roles", "name": "Editar rol",   "slug": "roles.edit",   "description": "Modificar roles existentes."},
+    {"module": "roles", "name": "Eliminar rol", "slug": "roles.delete", "description": "Eliminar roles."},
+    # Permisos
+    {"module": "permissions", "name": "Ver permisos",   "slug": "permissions.view",   "description": "Consultar permisos."},
+    {"module": "permissions", "name": "Crear permiso",  "slug": "permissions.create", "description": "Crear nuevos permisos."},
+    {"module": "permissions", "name": "Asignar permisos","slug": "permissions.assign","description": "Asignar permisos a roles."},
+    # Sucursales
+    {"module": "branches", "name": "Ver sucursales",    "slug": "branches.view",   "description": "Consultar sucursales."},
+    {"module": "branches", "name": "Crear sucursal",    "slug": "branches.create", "description": "Registrar nuevas sucursales."},
+    {"module": "branches", "name": "Editar sucursal",   "slug": "branches.edit",   "description": "Modificar sucursales."},
+    {"module": "branches", "name": "Eliminar sucursal", "slug": "branches.delete", "description": "Desactivar sucursales."},
+    # Productos
+    {"module": "products", "name": "Ver productos",    "slug": "products.view",   "description": "Consultar catálogo de productos."},
+    {"module": "products", "name": "Crear producto",   "slug": "products.create", "description": "Registrar productos."},
+    {"module": "products", "name": "Editar producto",  "slug": "products.edit",   "description": "Editar productos."},
+    {"module": "products", "name": "Eliminar producto","slug": "products.delete", "description": "Desactivar productos."},
+    # Reportes
+    {"module": "reports", "name": "Ver reportes",     "slug": "reports.view",   "description": "Acceder a reportes."},
+    {"module": "reports", "name": "Exportar reportes","slug": "reports.export", "description": "Exportar reportes."},
+    # Auditoría
+    {"module": "audit", "name": "Ver auditoría", "slug": "audit.view", "description": "Consultar logs de auditoría."},
 )
 
 SYSTEM_ROLES: tuple[dict[str, Any], ...] = (
@@ -135,49 +91,46 @@ SYSTEM_ROLES: tuple[dict[str, Any], ...] = (
 )
 
 ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
-    "super_admin": tuple(permission["slug"] for permission in PERMISSIONS),
+    "super_admin": tuple(p["slug"] for p in PERMISSIONS),
     "tenant_admin": (
-        "companies.view",
-        "companies.create",
-        "companies.delete",
-        "company.roles.manage",
-        "users.view",
-        "users.create",
-        "users.update",
-        "users.delete",
-        "users.assign_permissions",
-        "products.view",
-        "products.create",
-        "products.update",
-        "products.delete",
+        "companies.view", "companies.edit",
+        "users.view", "users.create", "users.edit", "users.delete",
+        "roles.view", "roles.create", "roles.edit", "roles.delete",
+        "permissions.view", "permissions.create", "permissions.assign",
+        "branches.view", "branches.create", "branches.edit", "branches.delete",
+        "products.view", "products.create", "products.edit", "products.delete",
+        "reports.view", "reports.export",
+        "audit.view",
     ),
     "branch_manager": (
-        "companies.view",
-        "users.view",
-        "products.view",
-        "products.create",
-        "products.update",
+        "users.view", "users.create", "users.edit",
+        "branches.view",
+        "products.view", "products.create", "products.edit",
+        "reports.view",
     ),
     "sales_agent": (
-        "companies.view",
-        "users.view",
         "products.view",
+        "branches.view",
+        "reports.view",
     ),
     "warehouse": (
-        "companies.view",
-        "products.view",
-        "products.create",
-        "products.update",
+        "products.view", "products.create", "products.edit",
+        "branches.view",
+        "reports.view",
     ),
     "accountant": (
-        "companies.view",
         "users.view",
         "products.view",
+        "branches.view",
+        "reports.view", "reports.export",
+        "audit.view",
     ),
     "viewer": (
         "companies.view",
         "users.view",
+        "branches.view",
         "products.view",
+        "reports.view",
     ),
 }
 
