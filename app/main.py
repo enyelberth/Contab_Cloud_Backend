@@ -82,6 +82,7 @@ from app.product import router as product_router
 from app.cuentas import router as cuentas_router
 from app.meses import router as meses_router
 from app.ejercicio import router as ejercicio_router
+from app.comprobantes import router as comprobantes_router
 
 app.include_router(auth_router.router)
 app.include_router(company_router.router)
@@ -94,6 +95,7 @@ app.include_router(product_router.router)
 app.include_router(cuentas_router.router)
 app.include_router(meses_router.router)
 app.include_router(ejercicio_router.router)
+app.include_router(comprobantes_router.router)
 
 @app.get("/")
 def home():

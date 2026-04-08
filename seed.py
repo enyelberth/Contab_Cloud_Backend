@@ -43,6 +43,11 @@ PERMISSIONS: tuple[dict[str, str], ...] = (
     {"module": "reports", "name": "Exportar reportes","slug": "reports.export", "description": "Exportar reportes."},
     # Auditoría
     {"module": "audit", "name": "Ver auditoría", "slug": "audit.view", "description": "Consultar logs de auditoría."},
+    # Comprobantes contables
+    {"module": "comprobantes", "name": "Ver comprobantes",    "slug": "comprobantes.view",   "description": "Consultar comprobantes contables."},
+    {"module": "comprobantes", "name": "Crear comprobante",   "slug": "comprobantes.create", "description": "Registrar nuevos comprobantes contables."},
+    {"module": "comprobantes", "name": "Editar comprobante",  "slug": "comprobantes.edit",   "description": "Modificar comprobantes contables."},
+    {"module": "comprobantes", "name": "Eliminar comprobante","slug": "comprobantes.delete", "description": "Eliminar comprobantes contables."},
 )
 
 SYSTEM_ROLES: tuple[dict[str, Any], ...] = (
@@ -101,6 +106,7 @@ ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "products.view", "products.create", "products.edit", "products.delete",
         "reports.view", "reports.export",
         "audit.view",
+        "comprobantes.view", "comprobantes.create", "comprobantes.edit", "comprobantes.delete",
     ),
     "branch_manager": (
         "users.view", "users.create", "users.edit",
@@ -124,6 +130,7 @@ ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         "branches.view",
         "reports.view", "reports.export",
         "audit.view",
+        "comprobantes.view", "comprobantes.create", "comprobantes.edit", "comprobantes.delete",
     ),
     "viewer": (
         "companies.view",
